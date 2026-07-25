@@ -4,6 +4,7 @@ Commands::
 
     liedetector run <repo_url>   # full pipeline
     liedetector verify <receipt> # recompute hashes, validate receipt integrity
+    liedetector badge <receipt>  # emit shields.io endpoint JSON from a receipt
     liedetector demo             # run against the bundled toy repo
     liedetector doctor           # check Docker, Python, dependencies
     liedetector version
@@ -27,6 +28,7 @@ from time import monotonic
 
 from . import DEFAULT_OPENAI_MODEL, DOCKER_IMAGE, TOOL_VERSION
 from .adjudicate import adjudicate, adjudicate_harness_failure, adjudicate_install_failure
+from .badge import BADGE_NAME, badge_from_receipt_file, build_badge, write_badge
 from .classify import classify
 from .executor import DockerExecutor, Executor, docker_available
 from .extract import extract_claims
@@ -150,6 +152,7 @@ def run_pipeline(
             else DOCKER_IMAGE.split("@")[0] + "@" + executor.image_digest,
         )
         receipt_path, receipt_hash = write_receipt(receipt, bundle_dir)
+        write_badge(build_badge(receipt), bundle_dir / BADGE_NAME)
 
         duration = monotonic() - started
         (bundle_dir / "logs" / "run_meta.json").write_text(
@@ -224,6 +227,9 @@ def _print_summary(result: PipelineResult) -> None:
     print(f"Receipt:      {result.receipt_path}")
     print(f"Receipt hash: {result.receipt_hash}")
     print(f"Truth Report: {result.report_path}")
+    badge_path = result.receipt_path.parent / BADGE_NAME
+    if badge_path.is_file():
+        print(f"Badge:        {badge_path}")
 
 
 def _build_llm_client(args: argparse.Namespace) -> LLMClient:
@@ -307,6 +313,20 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         print(f"\nverification FAILED ({len(failed)}/{len(checks)} checks failed)")
         return 1
     print(f"\nverification OK ({len(checks)} checks passed)")
+    return 0
+
+
+def _cmd_badge(args: argparse.Namespace) -> int:
+    out_path = Path(args.out) if args.out else None
+    written, badge = badge_from_receipt_file(Path(args.receipt), out_path)
+    print(f"Badge JSON: {written}")
+    print(f"  {badge['label']}: {badge['message']} ({badge['color']})")
+    print()
+    print("Embed (after publishing badge.json at a public raw URL):")
+    print(
+        "  [![truth report](https://img.shields.io/endpoint?url=<BADGE_JSON_URL>)]"
+        "(<TRUTH_REPORT_URL>)"
+    )
     return 0
 
 
@@ -405,6 +425,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_verify.add_argument("receipt", help="path to verification_receipt.json")
     p_verify.set_defaults(func=_cmd_verify)
+
+    p_badge = sub.add_parser(
+        "badge", help="emit shields.io endpoint JSON from a verification receipt"
+    )
+    p_badge.add_argument("receipt", help="path to verification_receipt.json")
+    p_badge.add_argument(
+        "--out",
+        default=None,
+        help=f"output path (default: {BADGE_NAME} next to the receipt)",
+    )
+    p_badge.set_defaults(func=_cmd_badge)
 
     p_demo = sub.add_parser("demo", help="run the pipeline against the bundled toy repo")
     add_output_dirs(p_demo)
