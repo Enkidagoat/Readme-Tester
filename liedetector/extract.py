@@ -30,18 +30,65 @@ def build_user_prompt(readme_text: str) -> str:
     )
 
 
+def _normalize(text: str) -> tuple[str, list[int]]:
+    """Collapse whitespace runs and drop markdown emphasis, keeping an index
+    map from each normalized char back to its offset in the original text.
+
+    READMEs are hard-wrapped, so a quote spanning a line break arrives from the
+    model with a space where the file has a newline; emphasis markers are
+    likewise dropped by models quoting rendered prose. Matching on the raw
+    bytes therefore discards quotes that are, as prose, exactly correct.
+    """
+    out: list[str] = []
+    idx: list[int] = []
+    prev_space = False
+    for i, ch in enumerate(text):
+        if ch in "*_`":
+            continue
+        if ch.isspace():
+            if prev_space or not out:
+                continue
+            out.append(" ")
+            idx.append(i)
+            prev_space = True
+            continue
+        out.append(ch)
+        idx.append(i)
+        prev_space = False
+    return "".join(out), idx
+
+
 def locate_quote(readme_text: str, quote: str, used: dict[str, int]) -> tuple[int, int] | None:
     """Locate the next unused occurrence of ``quote`` in the README.
 
     Returns ``(line, occurrence_index)`` with a 1-based line number, or
     ``None`` if the quote does not occur (such model output is discarded).
+    Matching is exact first, then falls back to a whitespace- and
+    emphasis-normalized comparison so that correct quotes spanning a hard
+    line wrap are not thrown away.
     """
+    norm_quote, _ = _normalize(quote)
+    if not norm_quote:
+        # Whitespace- or emphasis-only quotes carry no claim, and would
+        # otherwise match a run of spaces anywhere in the README.
+        return None
+
     occurrence = used.get(quote, 0)
+
     start = -1
     for _ in range(occurrence + 1):
         start = readme_text.find(quote, start + 1)
         if start == -1:
-            return None
+            break
+    if start == -1:
+        norm_text, idx = _normalize(readme_text)
+        pos = -1
+        for _ in range(occurrence + 1):
+            pos = norm_text.find(norm_quote, pos + 1)
+            if pos == -1:
+                return None
+        start = idx[pos]
+
     used[quote] = occurrence + 1
     line = readme_text.count("\n", 0, start) + 1
     return line, occurrence
