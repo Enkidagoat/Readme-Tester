@@ -64,6 +64,7 @@ See [`SECURITY.md`](SECURITY.md) for the full sandbox and prompt-safety model.
 ```
 liedetector run <repo_url>    # full pipeline against a GitHub repository
 liedetector verify <receipt>  # recompute hashes, validate receipt integrity
+liedetector badge <receipt>   # emit shields.io endpoint JSON from a receipt
 liedetector demo              # run against the bundled toy repo
 liedetector doctor            # check Docker, Python, provider credentials
 liedetector version
@@ -76,6 +77,25 @@ status of both providers so you can see which one is ready to use.
 `liedetector verify` recomputes every artifact hash and the receipt hash from
 stored artifacts and confirms they match — tamper with any artifact and it
 fails.
+
+## The badge
+
+Every `run` also writes `badge.json` next to the receipt —
+[shields.io endpoint](https://shields.io/badges/endpoint-badge) JSON derived
+from the verdict tally (`liedetector badge <receipt>` regenerates it from any
+receipt). Publish `badge.json` and the Truth Report anywhere public (GitHub
+Pages, a `badges` branch, raw.githubusercontent.com) and embed:
+
+```markdown
+[![truth report](https://img.shields.io/endpoint?url=<BADGE_JSON_URL>)](<TRUTH_REPORT_URL>)
+```
+
+The badge shows `N proven, N false` and is green only when at least one claim
+is `PROVEN` and none are `FALSE`; any `INCONCLUSIVE` turns it yellow, any
+`FALSE` turns it red. `UNTESTABLE` claims never touch the color — they were
+never executed. Unlike a hand-placed badge, this one is checkable: the badge
+links to the report, the report footer embeds the receipt hash, and
+`liedetector verify` confirms the receipt against the stored evidence.
 
 ## Requirements
 
@@ -175,6 +195,22 @@ modifying `cli.py`, `utils.py`, or `executor.py`:
 The hermetic test suite drives the whole pipeline with a scripted model and a
 fake sandbox, so it is byte-stable and needs neither Docker nor an API key. The
 opt-in `test-docker` target exercises the real container.
+
+## Part of the Aletheia toolchain
+
+The Lie Detector is the deep-verification stage of a three-tool pipeline for
+proving that AI-built code works:
+
+1. [Aletheia portfolio auditor](https://github.com/holeyfield33-art/Aletheia-portfolio-auditor)
+   — scans your whole GitHub account and tells you *which repos need attention*.
+2. [vibe-check](https://github.com/holeyfield33-art/vibe-check) — free, offline
+   static triage that tells you *what's wrong with a repo*. Its
+   `FAST_TRACK` disposition is the natural gate for running the Lie Detector:
+   fix the provable defects first, then spend LLM time verifying the README.
+3. **The Lie Detector** (this repo) — executes the README's claims and tells
+   you *whether the repo does what it says*, ending in the receipt-backed badge.
+
+Each tool works standalone; together they go discover → triage → verify → badge.
 
 ## Layout
 
