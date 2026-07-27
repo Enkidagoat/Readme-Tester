@@ -28,8 +28,19 @@ from .models import (
 
 log = logging.getLogger("liedetector.adjudicate")
 
-_RESOURCE_SIGNS = ("MemoryError", "Killed", "OOM", "Cannot allocate memory")
-_IMPORT_SIGNS = ("ModuleNotFoundError", "ImportError")
+_RESOURCE_SIGNS = (
+    "MemoryError",
+    "Killed",
+    "OOM",
+    "Cannot allocate memory",
+    "JavaScript heap out of memory",
+)
+_IMPORT_SIGNS = (
+    "ModuleNotFoundError",
+    "ImportError",
+    "ERR_MODULE_NOT_FOUND",
+    "Cannot find module",
+)
 
 
 def _identical(a: ExecutionRun, b: ExecutionRun) -> bool:
@@ -43,12 +54,18 @@ def _identical(a: ExecutionRun, b: ExecutionRun) -> bool:
 
 
 def _traceback_in_target(run: ExecutionRun, package: str) -> bool:
-    """Does the failure traceback originate inside the target package?"""
+    """Does the failure traceback originate inside the target package?
+
+    Matches Python tracebacks (``File "..."`` frames in site-packages or the
+    read-only repo mount) and Node stack traces (``at ...``/``file://`` frames
+    inside the installed app at ``/env/app`` or the repo mount).
+    """
     text = run.stdout + "\n" + run.stderr
-    pattern = re.compile(
+    python_frames = re.compile(
         r"File \"[^\"]*(?:site-packages[/\\]" + re.escape(package) + r"|/repo)[^\"]*\""
     )
-    return bool(pattern.search(text))
+    node_frames = re.compile(r"(?:\bat |file://)[^\n]*(?:/env/app|/repo)")
+    return bool(python_frames.search(text) or node_frames.search(text))
 
 
 def _classify_failure(run: ExecutionRun, package: str) -> FailureCategory:
@@ -77,6 +94,24 @@ def adjudicate_install_failure(claim: Claim) -> Evaluation:
         failure_category=FailureCategory.INSTALL_FAILURE,
         verdict_confidence=Confidence.LOW,
         rationale="Dependency installation failed; the claim was never executed.",
+    )
+
+
+def adjudicate_unsupported_repo(claim: Claim) -> Evaluation:
+    """Pre-flight: the repository has no supported install manifest.
+
+    Adjudicated before any harness is synthesized, so no model spend is wasted
+    on claims that could never be executed.
+    """
+    return Evaluation(
+        claim=claim,
+        verdict=Verdict.INCONCLUSIVE,
+        failure_category=FailureCategory.INSTALL_FAILURE,
+        verdict_confidence=Confidence.LOW,
+        rationale=(
+            "Repository is neither pip-installable (no pyproject.toml/setup.py) nor "
+            "npm-installable (no package.json); executable claims cannot be run."
+        ),
     )
 
 

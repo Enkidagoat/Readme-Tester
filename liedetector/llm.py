@@ -39,6 +39,21 @@ class LLMError(LieDetectorError):
     """A model call could not produce schema-valid output after one repair."""
 
 
+def strip_code_fences(raw: str) -> str:
+    """Strip a single wrapping markdown code fence from a model response.
+
+    Some OpenAI-compatible providers silently ignore ``response_format`` and
+    return the JSON wrapped in a ```` ```json ... ``` ```` fence.  Only a
+    whole-response wrap is stripped; fences inside the payload are untouched.
+    """
+    text = raw.strip()
+    if text.startswith("```") and text.endswith("```"):
+        first_newline = text.find("\n")
+        if first_newline != -1:
+            return text[first_newline + 1 : -3].strip()
+    return text
+
+
 class LLMClient(Protocol):
     """Minimal interface every model backend implements."""
 
@@ -114,7 +129,9 @@ class OpenAIClient:
         messages.append({"role": "user", "content": user})
 
         # First attempt: try json_schema response_format (supported by OpenAI,
-        # Featherless, and most modern providers).
+        # Featherless, and most modern providers).  Support is only confirmed
+        # when the response actually parses as JSON — some providers accept
+        # the parameter, silently ignore it, and return fenced markdown.
         if self._supports_json_schema is not False:
             try:
                 response = self._client.chat.completions.create(  # type: ignore[call-overload]
@@ -130,10 +147,21 @@ class OpenAIClient:
                         },
                     },
                 )
-                self._supports_json_schema = True
                 content = response.choices[0].message.content
                 if content is None:
                     raise LLMError("model returned no content")
+                if self._supports_json_schema is None:
+                    # A compliant json_schema response is bare JSON.  Fenced
+                    # markdown or prose means the provider silently ignored
+                    # response_format, so the schema is not being enforced —
+                    # fall back to json_object mode with the schema in-prompt.
+                    try:
+                        json.loads(str(content))
+                    except json.JSONDecodeError as exc:
+                        raise LLMError(
+                            f"json_schema response is not bare JSON: {exc}"
+                        ) from exc
+                self._supports_json_schema = True
                 return str(content)
             except Exception as exc:
                 if self._supports_json_schema is None:
@@ -173,7 +201,7 @@ class OpenAIClient:
 
 def _parse_and_validate(raw: str, schema: dict[str, Any]) -> dict[str, Any]:
     try:
-        parsed: Any = json.loads(raw)
+        parsed: Any = json.loads(strip_code_fences(raw))
     except json.JSONDecodeError as exc:
         raise SchemaValidationError([f"response is not valid JSON: {exc}"]) from exc
     validate_schema(parsed, schema)

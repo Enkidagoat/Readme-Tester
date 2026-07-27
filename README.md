@@ -100,7 +100,8 @@ links to the report, the report footer embeds the receipt hash, and
 ## Requirements
 
 - Python 3.11+
-- Docker (image is pinned by digest; `python:3.12-slim@sha256:...`)
+- Docker (images are pinned by digest; `python:3.12-slim@sha256:...` for
+  Python repositories, `node:22-slim@sha256:...` for Node repositories)
 - An LLM credential for one of the two supported providers:
   - **Anthropic** (default): `ANTHROPIC_API_KEY`, or a stored `ant auth login`
     profile.
@@ -164,10 +165,20 @@ produces 3 `PROVEN`, 1 `FALSE`, 2 `UNTESTABLE`.
 
 ## Scope
 
-Supported: Python repositories, PyPI-installable packages, `README.md`
-ingestion, deterministic and environment-bound claims, a static HTML report, an
-immutable JSON receipt, and a Docker execution sandbox. Behavioral-proxy and
-aspirational claims are displayed but never executed.
+Supported: Python repositories (pip-installable, pytest harnesses) and Node
+repositories (npm-installable, ESM harnesses run by a static bundled runner),
+`README.md` ingestion, deterministic and environment-bound claims, a static
+HTML report, an immutable JSON receipt, and a Docker execution sandbox.
+Behavioral-proxy and aspirational claims are displayed but never executed.
+
+The ecosystem is detected from root manifests (`pyproject.toml`/`setup.py`
+-> Python, `package.json` -> Node; Python wins when both are present) and
+selects the pinned sandbox image and install command. Node claims about
+applications (documented commands, declared dependencies, directory
+structure) are verified by reading the read-only repository mount — the
+harness never spawns the documented commands themselves. A repository with
+neither manifest is caught pre-flight: the run warns, spends no model calls
+on harness synthesis, and adjudicates every executable claim `INCONCLUSIVE`.
 
 ## Development
 
@@ -218,8 +229,9 @@ Each tool works standalone; together they go discover → triage → verify → 
 liedetector/
   cli.py  extract.py  classify.py  refine.py  synthesize.py
   executor.py  adjudicate.py  receipt.py  report.py  models.py  utils.py
+  ecosystem.py                # manifest-based Python/Node detection
   llm.py  prompts/            # versioned prompt templates
 harnesses/  reports/  receipts/
 tests/
-demo/toy_repo/
+demo/toy_repo/  demo/toy_repo_js/
 ```

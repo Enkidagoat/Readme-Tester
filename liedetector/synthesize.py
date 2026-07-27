@@ -1,12 +1,19 @@
-"""Harness synthesis: exactly one pytest-compatible harness per claim.
+"""Harness synthesis: exactly one executable harness per claim.
 
-Every generated harness is validated before it can ever run:
+Python repositories get a pytest harness; Node repositories get an ESM module
+executed by the tool's static runner.  Every generated harness is validated
+before it can ever run:
 
-- it must parse as Python,
-- it must define exactly the two required test functions, including the
-  trivial ``test_control`` control assertion,
-- it must pass a static safety scan (no sockets, subprocesses, ctypes,
-  filesystem escapes, ``eval``/``exec``...).
+- Python: it must parse (via ast), define exactly the two required test
+  functions including the trivial ``test_control`` control assertion, and
+  pass a static safety scan (no sockets, subprocesses, ctypes, filesystem
+  escapes, ``eval``/``exec``...).
+- Node: it must export exactly the two required async test functions and
+  pass a token-level safety scan (no child_process, net/http/tls, vm,
+  ``eval``/``new Function``/``fetch``...).  There is no JS parser in the
+  Python stdlib, so syntax errors surface at runtime as a failed import —
+  the runner reports both tests as ERROR and adjudication stays
+  conservative (``INCONCLUSIVE``, never ``FALSE``).
 
 Validation failures go through the standard Generate -> Validate -> Repair ->
 Validate -> Fail loop; a claim whose harness cannot be repaired fails
@@ -17,7 +24,9 @@ from __future__ import annotations
 
 import ast
 import logging
+import re
 
+from .ecosystem import HARNESS_PROMPT, Ecosystem
 from .llm import LLMClient, LLMError, generate_validated, load_prompt
 from .models import HARNESS_SCHEMA, Claim, SchemaValidationError
 from .utils import canonical_json
@@ -95,6 +104,56 @@ def validate_harness_code(code: str) -> list[str]:
     return errors
 
 
+#: Node modules a harness may never import (network, subprocess, dynamic code).
+FORBIDDEN_JS_MODULES = (
+    "child_process|worker_threads|cluster|net|http|https|http2|tls|dgram|dns|vm|repl"
+)
+
+_JS_FORBIDDEN_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (
+        re.compile(r"[\"'](?:node:)?(" + FORBIDDEN_JS_MODULES + r")[\"']"),
+        "forbidden module specifier",
+    ),
+    (re.compile(r"\beval\s*\("), "forbidden construct: eval"),
+    (re.compile(r"\bnew\s+Function\b"), "forbidden construct: new Function"),
+    (re.compile(r"\bfetch\s*\("), "forbidden construct: fetch"),
+    (re.compile(r"\bWebSocket\b"), "forbidden construct: WebSocket"),
+    (re.compile(r"\bXMLHttpRequest\b"), "forbidden construct: XMLHttpRequest"),
+    (re.compile(r"\bprocess\.env\b"), "forbidden construct: process.env"),
+    (re.compile(r"\bprocess\.binding\b"), "forbidden construct: process.binding"),
+]
+
+_JS_EXPORT_RE = re.compile(r"\bexport\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)")
+_JS_OTHER_EXPORT_RE = re.compile(r"\bexport\s+(?:default\b|const\b|let\b|var\b|class\b|\{)")
+
+
+def validate_js_harness_code(code: str) -> list[str]:
+    """Token-level static validation of a generated Node harness."""
+    errors: list[str] = []
+    exported = _JS_EXPORT_RE.findall(code)
+    if "test_control" not in exported:
+        errors.append(
+            "harness must define `export async function test_control`, the control assertion"
+        )
+    if "test_claim" not in exported:
+        errors.append(
+            "harness must define `export async function test_claim` verifying the hypothesis"
+        )
+    extras = [name for name in exported if name not in ("test_control", "test_claim")]
+    if extras or len(exported) > 2:
+        errors.append(
+            "harness must export exactly two functions: test_control, test_claim "
+            f"(found extra: {sorted(set(extras))})"
+        )
+    if _JS_OTHER_EXPORT_RE.search(code):
+        errors.append("harness must not use default/const/class/brace exports")
+    for pattern, message in _JS_FORBIDDEN_PATTERNS:
+        match = pattern.search(code)
+        if match:
+            errors.append(f"{message}: {match.group(0)}")
+    return errors
+
+
 def build_user_prompt(claim: Claim, package: str) -> str:
     """Wrap the claim record and package name as delimited untrusted data."""
     return (
@@ -105,18 +164,26 @@ def build_user_prompt(claim: Claim, package: str) -> str:
     )
 
 
-def synthesize_harness(client: LLMClient, claim: Claim, package: str) -> str:
+def synthesize_harness(
+    client: LLMClient,
+    claim: Claim,
+    package: str,
+    ecosystem: Ecosystem = Ecosystem.PYTHON,
+) -> str:
     """Generate one validated harness for one claim.
 
     Raises :class:`LLMError` (a structured, graceful failure for this claim)
     if the model cannot produce a safe, well-formed harness after one repair.
     """
-    system = load_prompt("harness-v1")
+    validator = (
+        validate_js_harness_code if ecosystem is Ecosystem.NODE else validate_harness_code
+    )
+    system = load_prompt(HARNESS_PROMPT[ecosystem])
     user = build_user_prompt(claim, package)
 
     payload = generate_validated(client, system, user, HARNESS_SCHEMA)
     code = str(payload["harness_code"])
-    errors = validate_harness_code(code)
+    errors = validator(code)
     if not errors:
         return code
 
@@ -135,7 +202,7 @@ def synthesize_harness(client: LLMClient, claim: Claim, package: str) -> str:
     except (LLMError, SchemaValidationError) as exc:
         raise LLMError(f"harness repair failed for claim {claim.id}: {exc}") from exc
     code = str(payload["harness_code"])
-    errors = validate_harness_code(code)
+    errors = validator(code)
     if errors:
         raise LLMError(
             f"harness for claim {claim.id} failed validation after repair: "

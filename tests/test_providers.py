@@ -13,7 +13,9 @@ from typing import Any
 import pytest
 
 from liedetector.cli import _build_llm_client, _load_dotenv, build_parser
-from liedetector.llm import AnthropicClient, OpenAIClient
+from liedetector.llm import AnthropicClient, OpenAIClient, generate_validated, strip_code_fences
+
+from .conftest import FakeLLM
 
 
 class _FakeMessage:
@@ -110,6 +112,42 @@ def test_openai_client_skips_json_schema_probe_after_first_failure(
         call["response_format"]["type"] == "json_object"
         for call in instance.chat.completions.calls[1:]
     )
+
+
+def test_openai_client_detects_silently_ignored_json_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A provider that accepts json_schema but returns fenced markdown must
+    be treated as unsupported and fall back to json_object mode."""
+    fenced = '```json\n{"claims": []}\n```'
+    holder = _patch_openai(monkeypatch, [fenced, '{"claims": []}'])
+    client = OpenAIClient(model="test-model")
+    result = client.complete("sys", "user", {"type": "object"})
+    assert result == '{"claims": []}'
+    assert client._supports_json_schema is False
+    instance = holder["instance"]  # type: ignore[index]
+    assert instance.chat.completions.calls[1]["response_format"]["type"] == "json_object"
+
+
+def test_strip_code_fences() -> None:
+    assert strip_code_fences('```json\n{"a": 1}\n```') == '{"a": 1}'
+    assert strip_code_fences('```\n{"a": 1}\n```') == '{"a": 1}'
+    assert strip_code_fences('{"a": 1}') == '{"a": 1}'
+    # Fences inside the payload are untouched.
+    inner = '{"code": "```py\\npass\\n```"}'
+    assert strip_code_fences(inner) == inner
+
+
+def test_generate_validated_accepts_fenced_json() -> None:
+    llm = FakeLLM(['```json\n{"harness_code": "x"}\n```'])
+    schema = {
+        "type": "object",
+        "properties": {"harness_code": {"type": "string"}},
+        "required": ["harness_code"],
+        "additionalProperties": False,
+    }
+    payload = generate_validated(llm, "sys", "user", schema)
+    assert payload == {"harness_code": "x"}
 
 
 def test_openai_client_reraises_error_once_schema_support_confirmed(

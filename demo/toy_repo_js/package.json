@@ -1,0 +1,11 @@
+{
+  "name": "toylib-js",
+  "version": "1.0.0",
+  "description": "Tiny string utilities used by the Lie Detector Node demo.",
+  "type": "module",
+  "main": "index.mjs",
+  "scripts": {
+    "test": "node --test"
+  },
+  "license": "MIT"
+}

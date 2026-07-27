@@ -12,6 +12,7 @@ import pytest
 from liedetector.models import ExecutionRun, InstallResult
 
 TOY_REPO = Path(__file__).resolve().parent.parent / "demo" / "toy_repo"
+TOY_REPO_JS = Path(__file__).resolve().parent.parent / "demo" / "toy_repo_js"
 
 PASSING_HARNESS = '''"""Verifies: {hypothesis}"""
 
@@ -46,6 +47,34 @@ UNSAFE_HARNESS = (
     "def test_claim():\n"
     "    assert True\n"
 )
+
+PASSING_HARNESS_JS = """\
+// Verifies: {hypothesis}
+
+export async function test_control() {{
+  const fs = await import("node:fs/promises");
+  JSON.parse(await fs.readFile("/repo/package.json", "utf8"));
+}}
+
+export async function test_claim() {{
+  const assert = await import("node:assert/strict");
+  assert.ok(true); // EXPECT_PASS
+}}
+"""
+
+FAILING_HARNESS_JS = """\
+// Verifies: {hypothesis}
+
+export async function test_control() {{
+  const fs = await import("node:fs/promises");
+  JSON.parse(await fs.readFile("/repo/package.json", "utf8"));
+}}
+
+export async function test_claim() {{
+  const assert = await import("node:assert/strict");
+  assert.ok(false); // EXPECT_FAIL
+}}
+"""
 
 
 class FakeLLM:
@@ -165,5 +194,16 @@ def toy_repo_dir(tmp_path: Path) -> Path:
 
     dest = tmp_path / "toy_repo"
     shutil.copytree(TOY_REPO, dest)
+    git_init_repo(dest)
+    return dest
+
+
+@pytest.fixture()
+def toy_repo_js_dir(tmp_path: Path) -> Path:
+    """A git-initialised copy of the bundled Node toy repository."""
+    import shutil
+
+    dest = tmp_path / "toy_repo_js"
+    shutil.copytree(TOY_REPO_JS, dest)
     git_init_repo(dest)
     return dest

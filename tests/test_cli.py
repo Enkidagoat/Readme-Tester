@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from liedetector import TOOL_VERSION
 from liedetector.cli import build_parser, main
 
 
 def test_version_command(capsys) -> None:  # type: ignore[no-untyped-def]
     assert main(["version"]) == 0
-    assert capsys.readouterr().out.strip() == "0.1.0"
+    assert capsys.readouterr().out.strip() == TOOL_VERSION
 
 
 def test_help_for_every_command() -> None:

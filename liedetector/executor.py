@@ -25,7 +25,8 @@ import uuid
 from pathlib import Path
 from typing import Protocol
 
-from . import DOCKER_IMAGE
+from . import DOCKER_IMAGE, DOCKER_IMAGE_NODE
+from .ecosystem import Ecosystem, detect_ecosystem
 from .models import ExecutionRun, InstallResult
 from .utils import LieDetectorError
 
@@ -35,6 +36,42 @@ EXECUTION_TIMEOUT_S = 120
 INSTALL_TIMEOUT_S = 600
 
 _RESULT_LINE = re.compile(r"::(test_control|test_claim)\b.*\b(PASSED|FAILED|ERROR)")
+
+#: Static, versioned ESM runner for Node harnesses.  It is written by the
+#: tool, never by the model: the model-generated harness only *exports*
+#: ``test_control`` and ``test_claim``; this runner imports and executes them,
+#: emitting the same ``<name>::test_control PASSED`` result lines pytest -v
+#: produces so one parser serves both ecosystems.
+JS_RUNNER_NAME = "_runner.mjs"
+JS_RUNNER_SOURCE = """\
+// Lie Detector Node harness runner (static, versioned; not model-generated).
+const harnessPath = process.argv[2];
+let mod;
+try {
+  mod = await import(harnessPath);
+} catch (err) {
+  console.log(`${harnessPath}::test_control ERROR`);
+  console.log(`${harnessPath}::test_claim ERROR`);
+  console.error("harness import failed:", (err && err.stack) || err);
+  process.exit(2);
+}
+let failed = false;
+for (const name of ["test_control", "test_claim"]) {
+  const fn = mod[name];
+  try {
+    if (typeof fn !== "function") {
+      throw new Error(`harness does not export a function named ${name}`);
+    }
+    await fn();
+    console.log(`${harnessPath}::${name} PASSED`);
+  } catch (err) {
+    failed = true;
+    console.log(`${harnessPath}::${name} FAILED`);
+    console.error(`${name} failed:`, (err && err.stack) || err);
+  }
+}
+process.exit(failed ? 1 : 0);
+"""
 
 
 class Executor(Protocol):
@@ -57,10 +94,12 @@ class Executor(Protocol):
 
 
 def parse_pytest_results(stdout: str) -> tuple[bool | None, bool | None]:
-    """Parse ``pytest -v`` output into (control_passed, claim_passed).
+    """Parse harness output into (control_passed, claim_passed).
 
-    ``None`` means the corresponding test never reported a result (e.g. a
-    collection error), which adjudication treats conservatively.
+    Matches the ``<file>::test_control PASSED`` lines that both ``pytest -v``
+    and the Node runner emit.  ``None`` means the corresponding test never
+    reported a result (e.g. a collection error), which adjudication treats
+    conservatively.
     """
     control: bool | None = None
     claim: bool | None = None
@@ -76,8 +115,10 @@ def parse_pytest_results(stdout: str) -> tuple[bool | None, bool | None]:
 class DockerExecutor:
     """Real sandbox backed by Docker with the pinned-digest image."""
 
-    def __init__(self, image: str = DOCKER_IMAGE) -> None:
-        self.image = image
+    def __init__(self, image: str | None = None) -> None:
+        self._image_override = image
+        self.image = image or DOCKER_IMAGE
+        self.ecosystem: Ecosystem | None = None
         self._env_dir: tempfile.TemporaryDirectory[str] | None = None
         self._repo_path: Path | None = None
 
@@ -126,17 +167,37 @@ class DockerExecutor:
                 "-v", f"{Path(ca).resolve()}:/ca/bundle.crt:ro",
                 "-e", "PIP_CERT=/ca/bundle.crt",
                 "-e", "SSL_CERT_FILE=/ca/bundle.crt",
+                "-e", "NODE_EXTRA_CA_CERTS=/ca/bundle.crt",
+                "-e", "npm_config_cafile=/ca/bundle.crt",
             ]
         return args
 
     def install(self, repo_path: Path) -> InstallResult:
-        """Create a venv volume and install the repo + pytest (network on).
+        """Install the repository into a persistent volume (network on).
 
-        The repository mount stays read-only (immutable input); the package is
-        built from a copy inside the container's writable tmpfs so in-tree
-        build artifacts (``*.egg-info``) never touch the source tree.
+        The ecosystem is detected from the repository's root manifests and
+        selects both the sandbox image and the install command:
+
+        - python: create a venv in the volume, ``pip install`` the repo +
+          pytest from a tmpfs copy (in-tree ``*.egg-info`` never touches the
+          read-only source mount).
+        - node: copy the repo into the volume and ``npm install`` there, so
+          ``node_modules`` survives into the (read-only) execution phase.
         """
         self._repo_path = repo_path.resolve()
+        self.ecosystem = detect_ecosystem(self._repo_path)
+        if self._image_override is None:
+            self.image = DOCKER_IMAGE_NODE if self.ecosystem is Ecosystem.NODE else DOCKER_IMAGE
+        if self.ecosystem is Ecosystem.NODE:
+            install_cmd = (
+                "cp -r /repo /env/app && cd /env/app && "
+                "npm install --no-audit --no-fund --loglevel=error"
+            )
+        else:
+            install_cmd = (
+                "cp -r /repo /tmp/src && python -m venv /env/venv && "
+                "/env/venv/bin/pip install --no-cache-dir --quiet /tmp/src pytest"
+            )
         self._env_dir = tempfile.TemporaryDirectory(
             prefix="liedetector-env-", ignore_cleanup_errors=True
         )
@@ -156,8 +217,7 @@ class DockerExecutor:
                 "--pids-limit", "256",
                 self.image,
                 "sh", "-c",
-                "cp -r /repo /tmp/src && python -m venv /env/venv && "
-                "/env/venv/bin/pip install --no-cache-dir --quiet /tmp/src pytest",
+                install_cmd,
             ],
             timeout=INSTALL_TIMEOUT_S,
         )
@@ -170,6 +230,19 @@ class DockerExecutor:
             raise LieDetectorError("executor.install() must succeed before run_harness()")
         env_path = Path(self._env_dir.name)
         harness_dir = harness_path.resolve().parent
+        if harness_path.suffix == ".mjs":
+            runner_path = harness_dir / JS_RUNNER_NAME
+            if not runner_path.is_file():
+                runner_path.write_bytes(JS_RUNNER_SOURCE.encode("utf-8"))
+                runner_path.chmod(0o644)
+            entry_cmd = [
+                "node", f"/harness/{JS_RUNNER_NAME}", f"/harness/{harness_path.name}",
+            ]
+        else:
+            entry_cmd = [
+                "/env/venv/bin/python", "-m", "pytest", "-v", "-p", "no:cacheprovider",
+                f"/harness/{harness_path.name}",
+            ]
         code, stdout, stderr, timed_out = self._docker(
             [
                 "--rm",
@@ -188,8 +261,7 @@ class DockerExecutor:
                 "-v", f"{harness_dir}:/harness:ro",
                 "-w", "/tmp",
                 self.image,
-                "/env/venv/bin/python", "-m", "pytest", "-v", "-p", "no:cacheprovider",
-                f"/harness/{harness_path.name}",
+                *entry_cmd,
             ],
             timeout=EXECUTION_TIMEOUT_S,
         )
@@ -217,7 +289,7 @@ class DockerExecutor:
             # fallback if Docker itself is unavailable at this point.
             subprocess.run(
                 ["docker", "run", "--rm", "-v", f"{env_path}:/env:rw", self.image,
-                 "sh", "-c", "rm -rf /env/venv"],
+                 "sh", "-c", "rm -rf /env/venv /env/app"],
                 capture_output=True,
             )
             self._env_dir.cleanup()
