@@ -21,15 +21,20 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
 
-from . import DEFAULT_OPENAI_MODEL, DOCKER_IMAGE, TOOL_VERSION
-from .adjudicate import adjudicate, adjudicate_harness_failure, adjudicate_install_failure
+from . import DEFAULT_OPENAI_MODEL, DOCKER_IMAGE, DOCKER_IMAGE_NODE, TOOL_VERSION
+from .adjudicate import (
+    adjudicate,
+    adjudicate_harness_failure,
+    adjudicate_install_failure,
+    adjudicate_unsupported_repo,
+)
 from .badge import BADGE_NAME, badge_from_receipt_file, build_badge, write_badge
 from .classify import classify
+from .ecosystem import HARNESS_EXTENSION, Ecosystem, detect_ecosystem, package_name
 from .executor import DockerExecutor, Executor, docker_available
 from .extract import extract_claims
 from .llm import AnthropicClient, LLMClient, LLMError, OpenAIClient
@@ -54,20 +59,6 @@ class PipelineResult:
     duration_seconds: float
 
 
-def _package_name(repo_path: Path) -> str:
-    """Best-effort installable/import package name for the repository."""
-    pyproject = repo_path / "pyproject.toml"
-    if pyproject.is_file():
-        try:
-            data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-            name = data.get("project", {}).get("name")
-            if isinstance(name, str) and name:
-                return name.replace("-", "_")
-        except tomllib.TOMLDecodeError:
-            pass
-    return repo_path.name.replace("-", "_")
-
-
 def _utc_now() -> str:
     return _dt.datetime.now(_dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -90,7 +81,17 @@ def run_pipeline(
         assert workspace.info is not None
         info = workspace.info
         readme_text = workspace.readme_path().read_text(encoding="utf-8")
-        package = _package_name(workspace.path)
+        ecosystem = detect_ecosystem(workspace.path)
+        package = package_name(workspace.path, ecosystem)
+        harness_ext = HARNESS_EXTENSION[ecosystem] if ecosystem else "py"
+        if ecosystem is None:
+            log.warning(
+                "pre-flight: repository has no supported install manifest "
+                "(pyproject.toml/setup.py or package.json); executable claims "
+                "will be INCONCLUSIVE and no harnesses will be synthesized"
+            )
+        else:
+            log.info("detected ecosystem", extra={"data": {"ecosystem": ecosystem.value}})
 
         claims = extract_claims(llm, readme_text)
         executable, evaluations = classify(claims)
@@ -98,11 +99,15 @@ def run_pipeline(
         evaluations.extend(refine_failed)
 
         harnesses: dict[str, str] = {}
-        for claim in executable:
-            try:
-                harnesses[claim.id] = synthesize_harness(llm, claim, package)
-            except LLMError as exc:
-                evaluations.append(adjudicate_harness_failure(claim, str(exc)))
+        if ecosystem is None:
+            for claim in executable:
+                evaluations.append(adjudicate_unsupported_repo(claim))
+        else:
+            for claim in executable:
+                try:
+                    harnesses[claim.id] = synthesize_harness(llm, claim, package, ecosystem)
+                except LLMError as exc:
+                    evaluations.append(adjudicate_harness_failure(claim, str(exc)))
 
         pending = [claim for claim in executable if claim.id in harnesses]
         install: InstallResult | None = None
@@ -119,7 +124,7 @@ def run_pipeline(
                         # and harness files must be world-readable to mount.
                         os.chmod(tmp, 0o755)
                         for claim in pending:
-                            harness_path = Path(tmp) / f"{claim.id}.py"
+                            harness_path = Path(tmp) / f"{claim.id}.{harness_ext}"
                             harness_path.write_text(harnesses[claim.id], encoding="utf-8")
                             harness_path.chmod(0o644)
                             runs = [
@@ -138,8 +143,9 @@ def run_pipeline(
                 evaluation.harness_code = harnesses[evaluation.claim.id]
 
         bundle_dir = receipts_dir / info.commit_sha[:12]
-        _write_bundle(bundle_dir, readme_text, install, evaluations)
+        _write_bundle(bundle_dir, readme_text, install, evaluations, harness_ext)
 
+        base_image = DOCKER_IMAGE_NODE if ecosystem is Ecosystem.NODE else DOCKER_IMAGE
         receipt = build_receipt(
             repo_url=info.url,
             commit_sha=info.commit_sha,
@@ -149,7 +155,9 @@ def run_pipeline(
             evaluations=evaluations,
             image=executor.image_digest
             if "@" in executor.image_digest
-            else DOCKER_IMAGE.split("@")[0] + "@" + executor.image_digest,
+            else base_image.split("@")[0] + "@" + executor.image_digest,
+            ecosystem=ecosystem.value if ecosystem else "unsupported",
+            harness_ext=harness_ext,
         )
         receipt_path, receipt_hash = write_receipt(receipt, bundle_dir)
         write_badge(build_badge(receipt), bundle_dir / BADGE_NAME)
@@ -200,6 +208,7 @@ def _write_bundle(
     readme_text: str,
     install: InstallResult | None,
     evaluations: list[Evaluation],
+    harness_ext: str = "py",
 ) -> None:
     """Write every hashed artifact into the self-contained receipt bundle."""
     (bundle_dir / "artifacts").mkdir(parents=True, exist_ok=True)
@@ -211,7 +220,8 @@ def _write_bundle(
         if evaluation.harness_code is not None:
             (bundle_dir / "harnesses").mkdir(parents=True, exist_ok=True)
             _write_hashed_text(
-                bundle_dir / "harnesses" / f"{evaluation.claim.id}.py", evaluation.harness_code
+                bundle_dir / "harnesses" / f"{evaluation.claim.id}.{harness_ext}",
+                evaluation.harness_code,
             )
         for run in evaluation.runs:
             _write_hashed_text(
@@ -347,7 +357,8 @@ def _cmd_doctor(_: argparse.Namespace) -> int:
     else:
         ok = False
         print(f"[FAIL] docker unavailable: {detail}")
-    print(f"      sandbox image (pinned by digest): {DOCKER_IMAGE}")
+    print(f"      python sandbox image (pinned by digest): {DOCKER_IMAGE}")
+    print(f"      node sandbox image (pinned by digest):   {DOCKER_IMAGE_NODE}")
 
     # Anthropic provider check
     try:

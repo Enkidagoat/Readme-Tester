@@ -30,16 +30,22 @@ from .utils import LieDetectorError, canonical_json, sha256_file, sha256_text
 RECEIPT_NAME = "verification_receipt.json"
 SIDECAR_NAME = "verification_receipt.sha256"
 
-#: Python version inside the pinned execution image.
+#: Python version inside the pinned python execution image.
 CONTAINER_PYTHON_VERSION = "3.12"
 
+#: Runtime label per ecosystem, matching the pinned execution images.
+CONTAINER_RUNTIMES = {
+    "python": "python-3.12",
+    "node": "node-22",
+}
 
-def environment_fingerprint() -> str:
+
+def environment_fingerprint(image: str = DOCKER_IMAGE) -> str:
     """Deterministic fingerprint of the execution environment."""
     return sha256_text(
         canonical_json(
             {
-                "docker_image": DOCKER_IMAGE,
+                "docker_image": image,
                 "python_version": CONTAINER_PYTHON_VERSION,
                 "tool_version": TOOL_VERSION,
             }
@@ -55,6 +61,8 @@ def build_receipt(
     install: InstallResult | None,
     evaluations: list[Evaluation],
     image: str = DOCKER_IMAGE,
+    ecosystem: str = "python",
+    harness_ext: str = "py",
 ) -> dict[str, Any]:
     """Assemble the receipt dictionary from validated pipeline outputs.
 
@@ -74,7 +82,7 @@ def build_receipt(
         entry["verdict_confidence"] = ev.verdict_confidence.value
         entry["rationale"] = ev.rationale
         entry["harness_path"] = (
-            f"harnesses/{ev.claim.id}.py" if ev.harness_code is not None else None
+            f"harnesses/{ev.claim.id}.{harness_ext}" if ev.harness_code is not None else None
         )
         entry["harness_sha256"] = (
             sha256_text(ev.harness_code) if ev.harness_code is not None else None
@@ -104,9 +112,11 @@ def build_receipt(
         "commit_sha": commit_sha,
         "timestamp_utc": timestamp_utc,
         "python_version": CONTAINER_PYTHON_VERSION,
+        "ecosystem": ecosystem,
+        "runtime": CONTAINER_RUNTIMES.get(ecosystem, CONTAINER_RUNTIMES["python"]),
         "docker_image": image,
         "docker_image_digest": image.split("@", 1)[1] if "@" in image else image,
-        "environment_fingerprint": environment_fingerprint(),
+        "environment_fingerprint": environment_fingerprint(image),
         "readme_path": "artifacts/README.md",
         "readme_sha256": readme_sha256,
         "install": (
