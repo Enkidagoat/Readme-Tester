@@ -26,6 +26,8 @@ _CSS = """
   --ink: #e6e9f0;
   --ink-dim: #97a0b3;
   --accent: #7aa2f7;
+  --seal: #c9a24c;
+  --seal-track: #2a2f3d;
   --proven: #4ade80;
   --false: #f87171;
   --inconclusive: #fbbf24;
@@ -46,20 +48,47 @@ h1 {
   letter-spacing: -.02em;
 }
 h1 .tagline { display:block; font-size: 1rem; color: var(--ink-dim); font-family: var(--sans); }
-.meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: .6rem 2rem; margin-top: 1.5rem; }
-.meta div { font-size: .85rem; color: var(--ink-dim); }
-.meta code { font-family: var(--mono); color: var(--ink); font-size: .8rem;
-             word-break: break-all; }
-.tally { display: flex; gap: .75rem; margin: 1.6rem 0 0; flex-wrap: wrap; }
+
+/* Hero scorecard: the one bold element the rest of the page stays quiet around. */
+.hero {
+  display: flex; align-items: center; gap: 2rem; flex-wrap: wrap;
+  margin-top: 2rem; padding: 1.75rem; border-radius: 14px;
+  background: var(--panel); border: 1px solid var(--panel-edge);
+}
+.seal { flex: none; }
+.seal-frac { font-family: var(--serif); font-size: 1.9rem; fill: var(--ink); }
+.seal-label {
+  font-family: var(--sans); font-size: .58rem; letter-spacing: .14em;
+  fill: var(--ink-dim);
+}
+.hero-body { flex: 1 1 320px; }
+.verdict-line {
+  font-family: var(--serif); font-size: 1.3rem; margin: 0 0 .9rem; color: var(--ink);
+}
+.verdict-line b { color: var(--seal); font-weight: 700; }
+.tally { display: flex; gap: .6rem; flex-wrap: wrap; }
 .tally .pill {
   border: 1px solid var(--panel-edge); border-radius: 999px;
-  padding: .35rem .9rem; font-size: .85rem; background: var(--panel);
+  padding: .3rem .8rem; font-size: .8rem; background: var(--bg);
 }
 .tally .pill b { font-family: var(--mono); }
+
+/* Provenance: the evidence chain, kept visible (not hidden) but visually quiet. */
+.provenance { margin-top: 1.75rem; }
+.provenance .label {
+  text-transform: uppercase; letter-spacing: .14em; font-size: .68rem;
+  color: var(--ink-dim); margin: 0 0 .6rem;
+}
+table.ledger { width: 100%; border-collapse: collapse; font-size: .8rem; }
+table.ledger td {
+  padding: .35rem 0; border-bottom: 1px solid var(--panel-edge); vertical-align: top;
+}
+table.ledger td.k { color: var(--ink-dim); width: 34%; padding-right: 1rem; white-space: nowrap; }
+table.ledger td.v { font-family: var(--mono); color: var(--ink); word-break: break-all; }
+
 section.claim {
   background: var(--panel); border: 1px solid var(--panel-edge);
-  border-radius: 12px; margin-top: 2rem; padding: 1.5rem 1.75rem;
+  border-left-width: 4px; border-radius: 10px; margin-top: 1.5rem; padding: 1.5rem 1.75rem;
 }
 .claim .verdict-row { display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
 .verdict {
@@ -87,11 +116,86 @@ details > summary { cursor: pointer; color: var(--accent); font-size: .85rem; }
 footer { margin-top: 4rem; border-top: 1px solid var(--panel-edge);
          padding-top: 1.5rem; color: var(--ink-dim); font-size: .8rem; }
 footer code { font-family: var(--mono); word-break: break-all; color: var(--ink); }
+
+@media print {
+  body { background: #fff; color: #111; }
+  .hero, section.claim { background: #fafafa; }
+  pre { background: #f2f2f2; color: #222; }
+}
 """
 
 
 def _esc(value: Any) -> str:
     return html.escape(str(value), quote=True)
+
+
+def _seal_svg(proven: int, testable: int) -> str:
+    """A proportion ring: proven claims out of testable ones (excludes UNTESTABLE).
+
+    Built as plain stroke-dasharray SVG rather than a CSS-driven chart so it
+    renders identically in a browser and in the older WebKit engine used for
+    PDF export.
+    """
+    r = 54
+    circumference = 2 * 3.14159265 * r
+    frac = (proven / testable) if testable else 0.0
+    dash = circumference * frac
+    gap = circumference - dash
+    frac_label = f"{proven}/{testable}" if testable else "n/a"
+    return f"""<svg class="seal" viewBox="0 0 130 130" width="130" height="130"
+     role="img" aria-label="{_esc(frac_label)} testable claims proven true">
+  <circle cx="65" cy="65" r="{r}" fill="none" stroke="var(--seal-track)" stroke-width="10"/>
+  <circle cx="65" cy="65" r="{r}" fill="none" stroke="var(--seal)" stroke-width="10"
+    stroke-dasharray="{dash:.2f} {gap:.2f}" stroke-linecap="round"
+    transform="rotate(-90 65 65)"/>
+  <text x="65" y="62" text-anchor="middle" class="seal-frac">{_esc(frac_label)}</text>
+  <text x="65" y="80" text-anchor="middle" class="seal-label">PROVEN</text>
+</svg>"""
+
+
+def _executive_line(tally: dict[str, int]) -> str:
+    proven = int(tally.get("PROVEN", 0))
+    false = int(tally.get("FALSE", 0))
+    inconclusive = int(tally.get("INCONCLUSIVE", 0))
+    untestable = int(tally.get("UNTESTABLE", 0))
+    testable = proven + false + inconclusive
+    if testable == 0:
+        line = "No testable factual claims were found in this README."
+    else:
+        line = f"<b>{proven} of {testable}</b> testable README claims were verified true."
+        if false:
+            line += f" <b>{false}</b> {'was' if false == 1 else 'were'} false."
+    if untestable:
+        line += (
+            f" {untestable} additional claim{'s' if untestable != 1 else ''}"
+            " (aspirational / future-facing) could not be executed and "
+            "were excluded from the score."
+        )
+    return line
+
+
+def _provenance_table(receipt: dict[str, Any], receipt_hash: str, duration: str) -> str:
+    prompt_versions = ", ".join(
+        f"{k}={v}" for k, v in sorted(receipt["prompt_versions"].items())
+    )
+    rows = [
+        ("Repository", receipt["repo_url"]),
+        ("Commit", receipt["commit_sha"]),
+        ("Timestamp (UTC)", receipt["timestamp_utc"]),
+        ("Runtime duration", duration),
+        ("Environment fingerprint", receipt["environment_fingerprint"]),
+        ("Sandbox image", receipt["docker_image_digest"]),
+        ("Prompt versions", prompt_versions),
+        ("Receipt hash (SHA-256)", receipt_hash),
+    ]
+    body = "".join(
+        f'<tr><td class="k">{_esc(k)}</td><td class="v">{_esc(v)}</td></tr>'
+        for k, v in rows
+    )
+    return f"""<div class="provenance">
+  <p class="label">Chain of custody</p>
+  <table class="ledger">{body}</table>
+</div>"""
 
 
 def _read_rel(base: Path, rel: str | None) -> str:
@@ -107,7 +211,7 @@ def _claim_card(entry: dict[str, Any], base: Path, repo_url: str) -> str:
     verdict = str(entry["verdict"])
     color = _VERDICT_COLORS.get(verdict, "var(--untestable)")
     parts: list[str] = [
-        '<section class="claim">',
+        f'<section class="claim" style="border-left-color:{color}">',
         '<div class="verdict-row">',
         f'<span class="verdict" style="color:{color}">{_esc(verdict)}</span>',
         f'<span class="loc">{_esc(entry["source"]["file"])}:{_esc(entry["source"]["line"])}'
@@ -168,6 +272,8 @@ def render_report(
     """
     tally = receipt["verdict_tally"]
     duration = f"{duration_seconds:.1f}s" if duration_seconds is not None else "n/a"
+    proven = int(tally.get("PROVEN", 0))
+    testable = proven + int(tally.get("FALSE", 0)) + int(tally.get("INCONCLUSIVE", 0))
     tally_html = "".join(
         f'<span class="pill" style="color:{_VERDICT_COLORS[v]}"><b>{tally.get(v, 0)}</b>'
         f" {v}</span>"
@@ -176,9 +282,6 @@ def render_report(
     cards = "\n".join(
         _claim_card(entry, bundle_dir, str(receipt["repo_url"]))
         for entry in receipt["claims"]
-    )
-    prompt_versions = ", ".join(
-        f"{k}={v}" for k, v in sorted(receipt["prompt_versions"].items())
     )
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -193,18 +296,15 @@ def render_report(
 <header class="masthead">
   <h1>Truth Report
     <span class="tagline">The Lie Detector &mdash; turn READMEs into tests.</span></h1>
-  <div class="meta">
-    <div>Repository<br><code>{_esc(receipt["repo_url"])}</code></div>
-    <div>Commit<br><code>{_esc(receipt["commit_sha"])}</code></div>
-    <div>Timestamp (UTC)<br><code>{_esc(receipt["timestamp_utc"])}</code></div>
-    <div>Runtime duration<br><code>{_esc(duration)}</code></div>
-    <div>Environment fingerprint<br><code>{_esc(receipt["environment_fingerprint"])}</code></div>
-    <div>Sandbox image<br><code>{_esc(receipt["docker_image_digest"])}</code></div>
-    <div>Prompt versions<br><code>{_esc(prompt_versions)}</code></div>
-    <div>Receipt hash<br><code>{_esc(receipt_hash)}</code></div>
-  </div>
-  <div class="tally">{tally_html}</div>
 </header>
+<div class="hero">
+  {_seal_svg(proven, testable)}
+  <div class="hero-body">
+    <p class="verdict-line">{_executive_line(tally)}</p>
+    <div class="tally">{tally_html}</div>
+  </div>
+</div>
+{_provenance_table(receipt, receipt_hash, duration)}
 {cards}
 <footer>
   Rendered from <code>verification_receipt.json</code> &mdash; the receipt is the
@@ -217,3 +317,42 @@ def render_report(
 </body>
 </html>
 """
+
+
+def to_pdf(html_text: str, out_path: Path) -> bool:
+    """Render the report HTML to a PDF via wkhtmltopdf, if it's installed.
+
+    Non-fatal by design: this is a nice-to-have export, not a pipeline
+    requirement, so a missing binary just means no PDF - it never raises.
+    Returns True on success.
+    """
+    import shutil as _shutil
+    import subprocess
+    import tempfile
+
+    binary = _shutil.which("wkhtmltopdf")
+    if not binary:
+        return False
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".html", encoding="utf-8", delete=False
+    ) as tmp:
+        tmp.write(html_text)
+        tmp_path = tmp.name
+    try:
+        result = subprocess.run(
+            [
+                binary,
+                "--quiet",
+                "--enable-local-file-access",
+                "--print-media-type",
+                tmp_path,
+                str(out_path),
+            ],
+            capture_output=True,
+            timeout=60,
+        )
+        return result.returncode == 0 and out_path.is_file()
+    except (subprocess.SubprocessError, OSError):
+        return False
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)

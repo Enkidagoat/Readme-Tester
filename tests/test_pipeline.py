@@ -9,7 +9,10 @@ model; the Docker executor itself is exercised only by the opt-in
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
+
+import pytest
 
 from liedetector.cli import run_pipeline
 from liedetector.receipt import verify_receipt
@@ -114,6 +117,32 @@ def test_report_embeds_receipt_hash(tmp_path: Path, toy_repo_dir: Path) -> None:
     html = result.report_path.read_text(encoding="utf-8")
     assert result.receipt_hash in html
     assert "Truth Report" in html
+
+
+@pytest.mark.skipif(
+    shutil.which("wkhtmltopdf") is None, reason="wkhtmltopdf not installed"
+)
+def test_render_pdf_true_produces_a_pdf_file(tmp_path: Path, toy_repo_dir: Path) -> None:
+    result = run_pipeline(
+        str(toy_repo_dir), llm=_scripted_llm(), executor=FakeExecutor(),
+        receipts_dir=tmp_path / "receipts", reports_dir=tmp_path / "reports",
+        harnesses_dir=tmp_path / "harnesses", allow_local=True,
+        timestamp_utc="2026-01-01T00:00:00Z", render_pdf=True,
+    )
+    assert result.pdf_path is not None
+    assert result.pdf_path.is_file()
+    assert result.pdf_path.suffix == ".pdf"
+    assert result.pdf_path.read_bytes().startswith(b"%PDF")
+
+
+def test_render_pdf_false_by_default(tmp_path: Path, toy_repo_dir: Path) -> None:
+    result = run_pipeline(
+        str(toy_repo_dir), llm=_scripted_llm(), executor=FakeExecutor(),
+        receipts_dir=tmp_path / "receipts", reports_dir=tmp_path / "reports",
+        harnesses_dir=tmp_path / "harnesses", allow_local=True,
+        timestamp_utc="2026-01-01T00:00:00Z",
+    )
+    assert result.pdf_path is None
 
 
 def test_install_failure_makes_claims_inconclusive(tmp_path: Path, toy_repo_dir: Path) -> None:

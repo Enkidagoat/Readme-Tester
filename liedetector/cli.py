@@ -41,7 +41,7 @@ from .llm import AnthropicClient, LLMClient, LLMError, OpenAIClient
 from .models import Evaluation, InstallResult
 from .receipt import build_receipt, verify_receipt, write_receipt
 from .refine import refine
-from .report import render_report
+from .report import render_report, to_pdf
 from .synthesize import synthesize_harness
 from .utils import LieDetectorError, Workspace, configure_logging, sha256_text
 
@@ -57,6 +57,7 @@ class PipelineResult:
     report_path: Path
     verdict_tally: dict[str, int]
     duration_seconds: float
+    pdf_path: Path | None = None
 
 
 def _utc_now() -> str:
@@ -72,6 +73,7 @@ def run_pipeline(
     harnesses_dir: Path,
     allow_local: bool = False,
     timestamp_utc: str | None = None,
+    render_pdf: bool = False,
 ) -> PipelineResult:
     """Run the full pipeline and write the receipt bundle plus Truth Report."""
     started = monotonic()
@@ -169,10 +171,19 @@ def run_pipeline(
 
         reports_dir.mkdir(parents=True, exist_ok=True)
         report_path = reports_dir / f"{info.commit_sha[:12]}.html"
-        report_path.write_text(
-            render_report(receipt, receipt_hash, bundle_dir, duration),
-            encoding="utf-8",
-        )
+        report_html = render_report(receipt, receipt_hash, bundle_dir, duration)
+        report_path.write_text(report_html, encoding="utf-8")
+
+        pdf_path: Path | None = None
+        if render_pdf:
+            candidate = reports_dir / f"{info.commit_sha[:12]}.pdf"
+            if to_pdf(report_html, candidate):
+                pdf_path = candidate
+            else:
+                log.warning(
+                    "PDF export requested but wkhtmltopdf is not installed "
+                    "(or failed) - skipping. The HTML report was still written."
+                )
 
         run_harnesses_dir = harnesses_dir / info.commit_sha[:12]
         if (bundle_dir / "harnesses").is_dir():
@@ -187,6 +198,7 @@ def run_pipeline(
             report_path=report_path,
             verdict_tally=tally,
             duration_seconds=duration,
+            pdf_path=pdf_path,
         )
 
 
@@ -267,6 +279,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         receipts_dir=Path(args.receipts_dir),
         reports_dir=Path(args.reports_dir),
         harnesses_dir=Path(args.harnesses_dir),
+        render_pdf=args.pdf,
     )
     _print_summary(result)
     return 0
@@ -427,6 +440,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_run = sub.add_parser("run", help="run the full pipeline against a GitHub repository")
     p_run.add_argument("repo_url", help="https://github.com/<owner>/<repo>")
+    p_run.add_argument(
+        "--pdf",
+        action="store_true",
+        help="also render a PDF of the Truth Report (requires wkhtmltopdf on PATH)",
+    )
     add_output_dirs(p_run)
     add_provider_args(p_run)
     p_run.set_defaults(func=_cmd_run)
