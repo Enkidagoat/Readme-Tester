@@ -33,20 +33,26 @@ from .utils import canonical_json
 
 log = logging.getLogger("liedetector.synthesize")
 
+#: Root modules a harness may never import.
+#:
+#: A ban only earns its place if removing it would grant a capability the
+#: sandbox does not already deny.  Execution runs ``--network none`` with all
+#: capabilities dropped, a read-only rootfs and read-only mounts, so the
+#: network-transport modules below are kept for defense-in-depth while the
+#: pure-utility modules that share their namespace are not banned at all:
+#: ``urllib.parse``, ``http.HTTPStatus`` and ``shutil.which`` grant nothing
+#: and are common in honest harnesses.  ``asyncio`` is likewise absent --
+#: banning it made every claim about an async-first library untestable.
 FORBIDDEN_IMPORTS = {
     "socket",
     "subprocess",
-    "urllib",
-    "http",
     "requests",
     "httpx",
     "ftplib",
     "telnetlib",
     "smtplib",
-    "asyncio",
     "multiprocessing",
     "ctypes",
-    "shutil",
     "pty",
     "signal",
 }
@@ -207,10 +213,12 @@ def validate_harness_code(code: str) -> list[str]:
     return errors
 
 
-#: Node modules a harness may never import (network, subprocess, dynamic code).
-FORBIDDEN_JS_MODULES = (
-    "child_process|worker_threads|cluster|net|http|https|http2|tls|dgram|dns|vm|repl"
-)
+#: Node modules a harness may never import.  Process spawning and dynamic
+#: code evaluation are the capabilities worth denying; the network-transport
+#: modules are not, because ``--network none`` already denies them and
+#: ``http.STATUS_CODES`` is a safe constant table a harness may legitimately
+#: check a claim against.
+FORBIDDEN_JS_MODULES = "child_process|worker_threads|cluster|vm|repl"
 
 _JS_FORBIDDEN_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (
@@ -231,7 +239,9 @@ _JS_FORBIDDEN_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bfetch\s*\("), "forbidden construct: fetch"),
     (re.compile(r"\bWebSocket\b"), "forbidden construct: WebSocket"),
     (re.compile(r"\bXMLHttpRequest\b"), "forbidden construct: XMLHttpRequest"),
-    (re.compile(r"\bprocess\.env\b"), "forbidden construct: process.env"),
+    # process.env is NOT banned: the execution environment holds only
+    # HOME=/tmp (executor.py), so there is no secret to leak, and banning it
+    # permanently blocked claims about environment handling.
     (re.compile(r"\bprocess\.binding\b"), "forbidden construct: process.binding"),
 ]
 

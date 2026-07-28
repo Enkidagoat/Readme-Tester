@@ -59,8 +59,9 @@ def test_missing_control_detected() -> None:
     [
         "import socket",
         "import subprocess",
-        "from urllib import request",
         "import ctypes",
+        "import multiprocessing",
+        "from socket import socket as s",
     ],
 )
 def test_forbidden_imports_detected(snippet: str) -> None:
@@ -69,6 +70,43 @@ def test_forbidden_imports_detected(snippet: str) -> None:
         "def test_claim():\n    assert True\n"
     )
     assert any("forbidden import" in e for e in validate_harness_code(code))
+
+
+# --- EDGE_CASE_AUDIT finding #6: bans that blocked legitimate claims ---
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        # Pure string parsing; grants nothing under --network none.
+        "from urllib.parse import urlparse",
+        "import urllib.parse",
+        # A constant table.
+        "from http import HTTPStatus",
+        # Async-first libraries were entirely untestable while this was banned.
+        "import asyncio",
+        # shutil.which / copy are safe against read-only mounts and /tmp.
+        "import shutil",
+    ],
+)
+def test_relaxed_imports_are_allowed(snippet: str) -> None:
+    code = (
+        f"{snippet}\n\ndef test_control():\n    import toylib\n    assert toylib\n\n"
+        "def test_claim():\n    assert True\n"
+    )
+    assert validate_harness_code(code) == []
+
+
+def test_async_claim_harness_validates() -> None:
+    """The shape a claim about an async API actually needs."""
+    code = (
+        "import asyncio\n\n"
+        "def test_control():\n    import toylib\n    assert toylib is not None\n\n"
+        "def test_claim():\n"
+        "    import toylib\n"
+        "    assert asyncio.run(toylib.fetch_all()) == []\n"
+    )
+    assert validate_harness_code(code) == []
 
 
 def test_forbidden_os_call_detected() -> None:
@@ -207,17 +245,32 @@ def test_js_default_export_detected() -> None:
     "snippet",
     [
         'const cp = await import("node:child_process");',
-        'const net = require("net");',
-        'await import("node:http");',
+        'const wt = require("worker_threads");',
+        'await import("node:vm");',
         "eval('1+1');",
         "const fn = new Function('return 1');",
         'await fetch("https://example.com");',
-        "const key = process.env.SECRET;",
+        "const b = process.binding('fs');",
     ],
 )
 def test_js_forbidden_constructs_detected(snippet: str) -> None:
     code = GOOD_JS.replace("assert.ok(true); // EXPECT_PASS", snippet)
     assert validate_js_harness_code(code)
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        # No network exists to reach; the constant tables are legitimate.
+        'const { STATUS_CODES } = await import("node:http");\n  '
+        "assert.ok(STATUS_CODES[404]);",
+        # The execution env holds only HOME, so there is nothing secret here.
+        "assert.equal(process.env.SECRET, undefined);",
+    ],
+)
+def test_js_relaxed_constructs_are_allowed(snippet: str) -> None:
+    code = GOOD_JS.replace("assert.ok(true); // EXPECT_PASS", snippet)
+    assert validate_js_harness_code(code) == []
 
 
 # --- EDGE_CASE_AUDIT finding #5: bypasses of the JS validator ---

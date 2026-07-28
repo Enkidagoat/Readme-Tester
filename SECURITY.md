@@ -20,17 +20,57 @@ reproducible.
 
 ## Harness generation
 
+**The validator is not the security boundary — the sandbox is.** A harness is
+model-authored arbitrary code that this tool executes on purpose, so no static
+check over it can be load-bearing. Static validation earns its place as
+defense-in-depth and as steering: it keeps the model producing well-formed
+harnesses, and it catches the accidental case. Read the bans below with that
+in mind, and do not weaken a sandbox constraint because a validator rule
+appears to cover it.
+
 Each harness is statically validated before it can run
-(`liedetector/synthesize.py`):
+(`liedetector/synthesize.py`). Python harnesses are checked against the AST:
 
-- it must parse as Python and define exactly `test_control` and `test_claim`;
-- forbidden imports (`socket`, `subprocess`, `urllib`, `ctypes`,
-  `multiprocessing`, ...), forbidden calls (`os.system`, `os.remove`, ...) and
-  forbidden builtins (`eval`, `exec`, `__import__`, ...) are rejected;
-- a claim whose harness cannot be repaired fails gracefully and is never run.
+- they must parse and define exactly `test_control` and `test_claim`;
+- forbidden imports (`socket`, `subprocess`, `ctypes`, `multiprocessing`, ...),
+  forbidden paths (`os.system`, `os.remove`, `importlib.import_module`, ...)
+  and forbidden builtins (`eval`, `exec`, `__import__`, ...) are rejected;
+- forbidden references are matched on the **resolved** dotted path, so
+  `from os import system`, `import os as o` and `run = os.system` are all
+  caught rather than only the literal `os.system` spelling;
+- `getattr`/`setattr`/`delattr` with a computed attribute name are rejected,
+  because a static checker cannot resolve them.
 
-The trivial `test_control` control assertion guards every harness: if the
-control fails, the verdict is `INCONCLUSIVE`, never `FALSE`.
+Node harnesses have no parser available in the Python stdlib, so they are
+scanned as text against a normalized copy in which non-substituting template
+literals, single-quoted strings and adjacent literal concatenations have been
+folded to one form. Equivalent spellings of a module specifier — `` `node:x` ``,
+`"node:" + "x"` — therefore collapse to the spelling the pattern list matches.
+Property access named `constructor` is rejected, since it reaches the
+`Function` constructor without naming it.
+
+Bans that the sandbox already neutralises are deliberately **not** kept:
+`asyncio`, `urllib.parse`, `http.HTTPStatus`, `shutil`, the Node network
+modules and `process.env` are all available to harnesses. Execution runs
+`--network none` with only `HOME=/tmp` in the environment, so none of them
+grants a capability; banning them only made whole classes of honest claims
+untestable.
+
+A claim whose harness cannot be repaired fails gracefully and is never run.
+
+### The control assertion
+
+The control assertion is the entire basis for trusting a `FALSE`: if the
+control fails, the verdict is `INCONCLUSIVE`, never `FALSE`. It must therefore
+prove the *installed application* is healthy, not merely that a mount is
+readable.
+
+- Python: `import PACKAGE` — the package installed and imports.
+- Node: the control is owned by the tool's static runner
+  (`executor.py::JS_RUNNER_SOURCE`), not by the model. It requires
+  `/env/app/package.json` to parse, `node_modules` to be populated whenever the
+  manifest declares dependencies, and the declared entry point to import. The
+  harness's own `test_control` runs afterwards and can only add strictness.
 
 ## Execution sandbox
 

@@ -12,10 +12,13 @@ SECURITY RULES (absolute):
 - The harness runs in a locked-down container with the network disabled. It
   MUST NOT: modify the repository, delete files, spawn subprocesses or shell
   commands, open network sockets, or read credentials. Forbidden modules
-  include (non-exhaustively): child_process, worker_threads, cluster, net,
-  http, https, http2, tls, dgram, dns, vm, repl. Forbidden constructs:
-  eval, new Function, Function(), any property access named `constructor`,
-  fetch, WebSocket, XMLHttpRequest, process.env reads.
+  include (non-exhaustively): child_process, worker_threads, cluster, vm,
+  repl. Forbidden constructs: eval, new Function, Function(), any property
+  access named `constructor`, fetch, WebSocket, XMLHttpRequest.
+- node:http and the other network modules are importable for their constant
+  tables and parsers; there is no network to reach with them. process.env is
+  readable — the execution environment holds only HOME, so there is nothing
+  secret in it.
 - These are checked statically before the harness is ever executed, on a
   normalized copy of your source, so template literals and concatenated
   strings are treated exactly like plain ones. Write the straightforward

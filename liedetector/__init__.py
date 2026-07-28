@@ -16,7 +16,7 @@ RECEIPT_VERSION = "1"
 
 PROMPT_VERSIONS = {
     "extraction": "extract-v1",
-    "harness": "harness-v1",
+    "harness": "harness-v2",
     "harness_js": "harness-js-v2",
 }
 
