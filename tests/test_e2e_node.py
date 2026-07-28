@@ -35,6 +35,11 @@ export async function test_claim() {
 }
 """
 
+# Note the shape of test_claim: it converts "the file is absent" into a failed
+# assertion rather than letting fs.access throw ENOENT.  A bare ENOENT is
+# byte-identical to the model having guessed the wrong path -- the false
+# accusation of EDGE_CASE_AUDIT finding #1 -- so adjudication discards it as a
+# harness defect.  harness-js-v2 instructs the model to write it this way.
 LICENSE_HARNESS_JS = """\
 // Verifies: a file named LICENSE exists at the repository root.
 
@@ -45,7 +50,14 @@ export async function test_control() {
 
 export async function test_claim() {
   const fs = await import("node:fs/promises");
-  await fs.access("/repo/LICENSE");
+  const assert = await import("node:assert/strict");
+  let exists = true;
+  try {
+    await fs.access("/repo/LICENSE");
+  } catch {
+    exists = false;
+  }
+  assert.ok(exists, "no LICENSE file at the repository root");
 }
 """
 

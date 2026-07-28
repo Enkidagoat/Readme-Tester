@@ -181,6 +181,24 @@ def test_assertion_only_failure_is_still_false() -> None:
     assert ev.failure_category == FailureCategory.TARGET_FAILURE
 
 
+def test_missing_file_claim_is_false_when_the_harness_asserts() -> None:
+    """The other half of the wrong-path rule, and the reason it needs stating.
+
+    "This file exists" is false when the file is absent -- but a bare ENOENT
+    is byte-identical to the model having guessed the wrong path. A harness
+    that converts absence into an assertion supplies the distinction; one that
+    lets fs.access throw does not, and is discarded (see the test above).
+    """
+    asserted = (
+        "test_claim failed: AssertionError [ERR_ASSERTION]: "
+        "no LICENSE file at the repository root\n"
+        "    at test_claim (file:///harness/clm-x.mjs:14:3)\n"
+    )
+    ev = adjudicate(_claim(), HARNESS, _fail_fail(asserted), "toyapp")
+    assert ev.verdict == Verdict.FALSE
+    assert ev.failure_category == FailureCategory.TARGET_FAILURE
+
+
 def test_assertion_mixed_with_harness_error_is_never_false() -> None:
     """A half-working harness proves nothing, even though it did assert."""
     mixed = HALLUCINATED_SYMBOL_TB + "\nE       AssertionError: assert 1 == 2\n"
