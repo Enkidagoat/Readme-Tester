@@ -54,6 +54,33 @@ _IMPORT_SIGNS = (
     "Cannot find module",
 )
 
+#: Faults caused by the sandbox itself rather than by the repository.  Each
+#: is a direct consequence of a constraint the executor imposes -- no network,
+#: read-only mounts, a minimal image -- so it reproduces perfectly across both
+#: runs and would otherwise be rewarded with HIGH confidence.  A claim that
+#: legitimately needs the network is not a lie; it is untested here.
+_ENVIRONMENT_SIGNS = (
+    # --network none
+    "Network is unreachable",
+    "ENETUNREACH",
+    "Errno 101",
+    "Temporary failure in name resolution",
+    "EAI_AGAIN",
+    "getaddrinfo ENOTFOUND",
+    "ECONNREFUSED",
+    "Errno 111",
+    # read-only repo/env mounts and --read-only rootfs
+    "Read-only file system",
+    "EROFS",
+    "Errno 30",
+    "Permission denied",
+    "EACCES",
+    "Errno 13",
+    # system libraries absent from the slim image
+    "error while loading shared libraries",
+    "cannot open shared object file",
+)
+
 #: A failed assertion is the *only* evidence that ``test_claim`` reached the
 #: target and got a contradicting value: every symbol resolved, every path
 #: existed, the call returned, and the returned value failed the check.
@@ -147,6 +174,11 @@ def _classify_failure(run: ExecutionRun, package: str) -> FailureCategory:
         return FailureCategory.IMPORT_FAILURE
     if run.control_passed is not True:
         return FailureCategory.HARNESS_FAILURE
+    if any(sign in text for sign in _ENVIRONMENT_SIGNS):
+        # Checked ahead of the traceback test on purpose: a sandbox constraint
+        # biting inside the target's own code still produces an in-target
+        # frame, and would otherwise be read as the repository being wrong.
+        return FailureCategory.ENVIRONMENT_FAILURE
     if _traceback_in_target(run, package):
         return FailureCategory.TARGET_FAILURE
     if run.claim_passed is False:
@@ -262,7 +294,14 @@ def adjudicate(
     evaluation.verdict = Verdict.INCONCLUSIVE
     evaluation.failure_category = category
     evaluation.verdict_confidence = Confidence.LOW
-    if category == FailureCategory.HARNESS_ERROR:
+    if category == FailureCategory.ENVIRONMENT_FAILURE:
+        evaluation.rationale = (
+            "Both executions failed on a constraint the sandbox imposes (no "
+            "network, read-only mounts, or a library absent from the image). "
+            "That fault is deterministic, so repeating it is not corroboration; "
+            "the claim is untested here, not disproven."
+        )
+    elif category == FailureCategory.HARNESS_ERROR:
         evaluation.rationale = (
             "Both executions failed, but test_claim died of a harness defect "
             "(a missing symbol, a wrong path, a bad call) rather than a failed "

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from liedetector.adjudicate import adjudicate, adjudicate_install_failure
 from liedetector.models import (
     Claim,
@@ -185,6 +187,39 @@ def test_assertion_mixed_with_harness_error_is_never_false() -> None:
     ev = adjudicate(_claim(), HARNESS, _fail_fail(mixed), "toylib")
     assert ev.verdict == Verdict.INCONCLUSIVE
     assert ev.failure_category == FailureCategory.HARNESS_ERROR
+
+
+# --- EDGE_CASE_AUDIT finding #3: deterministic sandbox faults are not proof ---
+
+
+@pytest.mark.parametrize(
+    ("name", "output"),
+    [
+        (
+            "network disabled by --network none",
+            'File "/env/venv/lib/python3.12/site-packages/toylib/client.py", line 9\n'
+            "OSError: [Errno 101] Network is unreachable\n",
+        ),
+        (
+            "repo mount is read-only",
+            'File "/env/venv/lib/python3.12/site-packages/toylib/cache.py", line 4\n'
+            "OSError: [Errno 30] Read-only file system: '/repo/cache.db'\n",
+        ),
+        (
+            "system library absent from the slim image",
+            'File "/env/venv/lib/python3.12/site-packages/toylib/fast.py", line 1\n'
+            "ImportError: libgomp.so.1: cannot open shared object file: "
+            "No such file or directory\n",
+        ),
+    ],
+)
+def test_sandbox_faults_are_never_false(name: str, output: str) -> None:
+    """Each fault reproduces identically in both runs and lands in a frame
+    inside the target, so it satisfied every FALSE condition."""
+    ev = adjudicate(_claim(), HARNESS, _fail_fail(output), "toylib")
+    assert ev.verdict != Verdict.FALSE, name
+    assert ev.verdict == Verdict.INCONCLUSIVE
+    assert ev.failure_category == FailureCategory.ENVIRONMENT_FAILURE
 
 
 def test_traceback_in_target_still_false_without_an_assertion() -> None:
