@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -17,7 +18,9 @@ from liedetector.badge import (
 from liedetector.utils import LieDetectorError
 
 
-def _receipt(proven: int = 0, false: int = 0, inconclusive: int = 0, untestable: int = 0) -> dict:
+def _receipt(
+    proven: int = 0, false: int = 0, inconclusive: int = 0, untestable: int = 0
+) -> dict[str, Any]:
     return {
         "verdict_tally": {
             "PROVEN": proven,
