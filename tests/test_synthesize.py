@@ -220,6 +220,48 @@ def test_js_forbidden_constructs_detected(snippet: str) -> None:
     assert validate_js_harness_code(code)
 
 
+# --- EDGE_CASE_AUDIT finding #5: bypasses of the JS validator ---
+#
+# The audit (section 2e) ran each of these through the real validator and got
+# no errors, because the checks matched only quote-delimited specifiers.
+
+JS_BYPASS_SNIPPETS = {
+    "template literal specifier": "await import(`node:child_process`);",
+    "concatenated specifier": 'await import("node:child" + "_process");',
+    "constructor gadget": 'const f = ({}).constructor.constructor("return 1"); f();',
+    # Near neighbours of the same three tricks.
+    "three-way concatenation": 'await import("node:child" + "_pro" + "cess");',
+    "single-quoted concatenation": "await import('node:child' + '_process');",
+    "computed constructor access": 'const f = ({})["constructor"]["constructor"];',
+    "bare Function constructor": 'const f = Function("return 1");',
+}
+
+
+@pytest.mark.parametrize(
+    "snippet", JS_BYPASS_SNIPPETS.values(), ids=list(JS_BYPASS_SNIPPETS)
+)
+def test_js_validator_bypasses_are_closed(snippet: str) -> None:
+    code = GOOD_JS.replace("assert.ok(true); // EXPECT_PASS", snippet)
+    assert validate_js_harness_code(code), "harness passed validation but must not"
+
+
+def test_js_direct_specifier_control_still_caught() -> None:
+    """The audit's control row: the literal form was already rejected."""
+    code = GOOD_JS.replace(
+        "assert.ok(true); // EXPECT_PASS", 'await import("node:child_process");'
+    )
+    assert any("forbidden module specifier" in e for e in validate_js_harness_code(code))
+
+
+def test_substituting_template_literals_are_left_alone() -> None:
+    """A ``${...}`` template has no statically known value; nothing to fold."""
+    code = GOOD_JS.replace(
+        "assert.ok(true); // EXPECT_PASS",
+        "const p = `/repo/${name}.json`;\n  assert.ok(p);",
+    )
+    assert validate_js_harness_code(code) == []
+
+
 def test_js_urls_in_strings_are_not_flagged() -> None:
     code = GOOD_JS.replace(
         "assert.ok(true); // EXPECT_PASS",

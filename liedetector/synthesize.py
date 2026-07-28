@@ -214,11 +214,20 @@ FORBIDDEN_JS_MODULES = (
 
 _JS_FORBIDDEN_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (
-        re.compile(r"[\"'](?:node:)?(" + FORBIDDEN_JS_MODULES + r")[\"']"),
+        re.compile(r"[\"'`](?:node:)?(" + FORBIDDEN_JS_MODULES + r")[\"'`]"),
         "forbidden module specifier",
     ),
     (re.compile(r"\beval\s*\("), "forbidden construct: eval"),
     (re.compile(r"\bnew\s+Function\b"), "forbidden construct: new Function"),
+    # `({}).constructor.constructor("...")` reaches the Function constructor
+    # without ever spelling `new Function`.  Property access named
+    # `constructor` has no use in a verification harness, in either notation.
+    (re.compile(r"\.\s*constructor\b"), "forbidden construct: .constructor access"),
+    (
+        re.compile(r"\[\s*[\"'`]constructor[\"'`]\s*\]"),
+        "forbidden construct: computed constructor access",
+    ),
+    (re.compile(r"(?<![.\w])Function\s*\("), "forbidden construct: Function()"),
     (re.compile(r"\bfetch\s*\("), "forbidden construct: fetch"),
     (re.compile(r"\bWebSocket\b"), "forbidden construct: WebSocket"),
     (re.compile(r"\bXMLHttpRequest\b"), "forbidden construct: XMLHttpRequest"),
@@ -226,13 +235,52 @@ _JS_FORBIDDEN_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bprocess\.binding\b"), "forbidden construct: process.binding"),
 ]
 
+#: A template literal with no ``${...}`` substitution is just a string, so it
+#: must be scanned like one.
+_JS_TEMPLATE_NO_SUB = re.compile(r"`(?:[^`\\$]|\\.|\$(?!\{))*`")
+_JS_SINGLE_QUOTED = re.compile(r"'((?:[^'\\\n]|\\.)*)'")
+#: Two adjacent string literals joined by ``+``; folded until none remain.
+_JS_CONCAT = re.compile(r'"([^"\n]*)"\s*\+\s*"([^"\n]*)"')
+_JS_CONCAT_FOLD_LIMIT = 16
+
+
+def normalize_js_for_scan(code: str) -> str:
+    """Fold template literals and literal concatenation into plain strings.
+
+    ``import("node:child" + "_process")`` and ``import(`node:child_process`)``
+    name exactly the same module as ``import("node:child_process")``; only the
+    spelling differs.  Collapsing both spellings before the pattern scan means
+    the forbidden-specifier list does not have to enumerate them.
+
+    Substituting template literals (``${...}``) are deliberately left alone:
+    their value is not statically known, so there is nothing to fold.
+    """
+    text = _JS_TEMPLATE_NO_SUB.sub(
+        lambda m: '"' + m.group(0)[1:-1].replace('"', " ") + '"', code
+    )
+    text = _JS_SINGLE_QUOTED.sub(lambda m: '"' + m.group(1).replace('"', " ") + '"', text)
+    for _ in range(_JS_CONCAT_FOLD_LIMIT):
+        folded = _JS_CONCAT.sub(r'"\1\2"', text)
+        if folded == text:
+            break
+        text = folded
+    return text
+
 _JS_EXPORT_RE = re.compile(r"\bexport\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)")
 _JS_OTHER_EXPORT_RE = re.compile(r"\bexport\s+(?:default\b|const\b|let\b|var\b|class\b|\{)")
 
 
 def validate_js_harness_code(code: str) -> list[str]:
-    """Token-level static validation of a generated Node harness."""
+    """Token-level static validation of a generated Node harness.
+
+    There is no JS parser in the Python stdlib, so this is a scan over source
+    text, run against a normalized copy in which equivalent spellings of a
+    string literal have been collapsed (see :func:`normalize_js_for_scan`).
+    Like the Python validator this is defense-in-depth and model steering,
+    not the security boundary — the sandbox is.
+    """
     errors: list[str] = []
+    scan_text = normalize_js_for_scan(code)
     exported = _JS_EXPORT_RE.findall(code)
     if "test_control" not in exported:
         errors.append(
@@ -251,7 +299,7 @@ def validate_js_harness_code(code: str) -> list[str]:
     if _JS_OTHER_EXPORT_RE.search(code):
         errors.append("harness must not use default/const/class/brace exports")
     for pattern, message in _JS_FORBIDDEN_PATTERNS:
-        match = pattern.search(code)
+        match = pattern.search(scan_text)
         if match:
             errors.append(f"{message}: {match.group(0)}")
     return errors
