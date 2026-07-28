@@ -17,7 +17,7 @@ RECEIPT_VERSION = "1"
 PROMPT_VERSIONS = {
     "extraction": "extract-v1",
     "harness": "harness-v1",
-    "harness_js": "harness-js-v1",
+    "harness_js": "harness-js-v2",
 }
 
 #: Execution sandbox image for Python repositories, pinned by digest (never by tag).
