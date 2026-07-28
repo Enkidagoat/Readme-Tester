@@ -87,6 +87,78 @@ def test_forbidden_eval_detected() -> None:
     assert any("forbidden builtin" in e for e in validate_harness_code(code))
 
 
+# --- EDGE_CASE_AUDIT finding #4: bypasses of the Python validator ---
+#
+# Every snippet below was run through the real validator by the audit
+# (section 2c) and returned NO errors.  Each must now be rejected.
+
+BYPASS_SNIPPETS = {
+    "from-import defeats attribute matching": (
+        "from os import system\n\ndef test_control():\n"
+        "    import toylib\n    assert toylib\n\n"
+        "def test_claim():\n    system('id')\n"
+    ),
+    "alias defeats the os.system name check": (
+        "import os as o\n\ndef test_control():\n"
+        "    import toylib\n    assert toylib\n\n"
+        "def test_claim():\n    o.system('id')\n"
+    ),
+    "computed attribute name defeats literal matching": (
+        "import os\n\ndef test_control():\n"
+        "    import toylib\n    assert toylib\n\n"
+        "def test_claim():\n    getattr(os, 'sys' + 'tem')('id')\n"
+    ),
+    "importlib dynamically imports a banned module": (
+        "import importlib\n\ndef test_control():\n"
+        "    import toylib\n    assert toylib\n\n"
+        "def test_claim():\n    importlib.import_module('socket')\n"
+    ),
+    "runtime rebinding of a forbidden call": (
+        "import os\n\ndef test_control():\n"
+        "    import toylib\n    assert toylib\n\n"
+        "def test_claim():\n    run = os.system\n    run('id')\n"
+    ),
+    "aliased from-import of a dynamic importer": (
+        "from importlib import import_module as load\n\ndef test_control():\n"
+        "    import toylib\n    assert toylib\n\n"
+        "def test_claim():\n    load('socket')\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("code", BYPASS_SNIPPETS.values(), ids=list(BYPASS_SNIPPETS))
+def test_validator_bypasses_are_closed(code: str) -> None:
+    assert validate_harness_code(code), "harness passed validation but must not"
+
+
+def test_direct_os_system_control_still_caught() -> None:
+    """The audit's control row: the literal form was already rejected."""
+    code = (
+        "import os\n\ndef test_control():\n    import toylib\n    assert toylib\n\n"
+        "def test_claim():\n    os.system('id')\n"
+    )
+    assert any("forbidden call" in e for e in validate_harness_code(code))
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        # Presence checks against the target API: the single most common way
+        # to verify a "supports X" claim.  A literal attribute name is
+        # statically checkable, so it stays allowed.
+        "assert getattr(toylib, 'add')(2, 3) == 5",
+        "import importlib.metadata\n    assert importlib.metadata.version('toylib')",
+        "from importlib.metadata import version\n    assert version('toylib')",
+    ],
+)
+def test_legitimate_reflection_is_not_blocked(snippet: str) -> None:
+    code = (
+        "import toylib\n\ndef test_control():\n    import toylib\n    assert toylib\n\n"
+        f"def test_claim():\n    {snippet}\n"
+    )
+    assert validate_harness_code(code) == []
+
+
 def test_synthesize_returns_valid_harness() -> None:
     llm = FakeLLM([harness_response(GOOD)])
     code = synthesize_harness(llm, _claim(), "toylib")

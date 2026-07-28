@@ -51,23 +51,96 @@ FORBIDDEN_IMPORTS = {
     "signal",
 }
 
-FORBIDDEN_CALLS = {
-    ("os", "system"),
-    ("os", "popen"),
-    ("os", "remove"),
-    ("os", "unlink"),
-    ("os", "rmdir"),
-    ("os", "fork"),
-    ("os", "kill"),
-    ("os", "execv"),
-    ("os", "execve"),
+#: Dotted paths a harness may never reference, *however* it reaches them.
+#: Matched against the resolved canonical path of an expression, so aliasing
+#: (``import os as o``) and rebinding (``from os import system``) do not help.
+FORBIDDEN_PATHS = {
+    "os.system",
+    "os.popen",
+    "os.remove",
+    "os.unlink",
+    "os.rmdir",
+    "os.fork",
+    "os.kill",
+    "os.execv",
+    "os.execve",
+    # Dynamic import is a general-purpose bypass of FORBIDDEN_IMPORTS.
+    # `importlib.metadata` / `importlib.resources` stay available: they are
+    # how a harness verifies a version or packaged-data claim.
+    "importlib.import_module",
+    "importlib.__import__",
+    "importlib.util.spec_from_file_location",
+    "importlib.util.module_from_spec",
+    "importlib.machinery.SourceFileLoader",
 }
 
 FORBIDDEN_NAMES = {"eval", "exec", "compile", "__import__", "breakpoint", "input"}
 
 
+def _binding_targets(node: ast.AST) -> list[tuple[str, str]]:
+    """Local-name -> canonical-dotted-path pairs introduced by one statement."""
+    if isinstance(node, ast.Import):
+        pairs = []
+        for alias in node.names:
+            # `import a.b.c` binds `a`; `import a.b.c as x` binds `x` to a.b.c.
+            local = alias.asname or alias.name.split(".")[0]
+            target = alias.name if alias.asname else alias.name.split(".")[0]
+            pairs.append((local, target))
+        return pairs
+    if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+        return [
+            (alias.asname or alias.name, f"{node.module}.{alias.name}")
+            for alias in node.names
+        ]
+    return []
+
+
+def _resolve(node: ast.AST, bindings: dict[str, str]) -> str | None:
+    """Canonical dotted path an expression names, or ``None`` if not a name."""
+    if isinstance(node, ast.Name):
+        return bindings.get(node.id, node.id)
+    if isinstance(node, ast.Attribute):
+        base = _resolve(node.value, bindings)
+        return f"{base}.{node.attr}" if base else None
+    return None
+
+
+def _collect_bindings(tree: ast.AST) -> dict[str, str]:
+    """Map every local name to the module path it ultimately refers to.
+
+    Covers imports, aliased imports, from-imports, and plain re-assignment
+    (``run = os.system``).  Bindings are only ever added, never removed, so a
+    name that is rebound stays suspect -- the conservative direction for a
+    validator whose failure mode is letting something through.
+    """
+    bindings: dict[str, str] = {}
+    for node in ast.walk(tree):
+        for local, target in _binding_targets(node):
+            bindings[local] = target
+    # Second pass: `x = <already-resolvable path>` aliases at runtime.
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            assigned = node.targets[0]
+            resolved = _resolve(node.value, bindings)
+            if isinstance(assigned, ast.Name) and resolved and resolved != assigned.id:
+                bindings.setdefault(assigned.id, resolved)
+    return bindings
+
+
 def validate_harness_code(code: str) -> list[str]:
-    """Static validation of a generated harness; returns a list of errors."""
+    """Static validation of a generated harness; returns a list of errors.
+
+    Forbidden references are matched on the *resolved* dotted path rather than
+    on literal ``module.attr`` source text, so the aliasing and re-import
+    tricks that defeated a purely syntactic scan are caught:
+    ``from os import system``, ``import os as o``, ``run = os.system``.
+    Dynamically-computed attribute access (``getattr(os, "sys" + "tem")``) is
+    rejected outright, since a static checker cannot resolve it.
+
+    This is defense-in-depth and model steering, not the security boundary:
+    the harness is model-authored arbitrary code executed on purpose, and the
+    sandbox in :mod:`liedetector.executor` is what actually contains it.
+    """
     errors: list[str] = []
     try:
         tree = ast.parse(code)
@@ -86,21 +159,51 @@ def validate_harness_code(code: str) -> list[str]:
     if sorted(test_names) != sorted(set(test_names)) or len(test_names) > 2:
         errors.append("harness must define exactly two test functions: test_control, test_claim")
 
+    bindings = _collect_bindings(tree)
+
+    def check_path(path: str | None, described_as: str) -> None:
+        if path is None:
+            return
+        if path in FORBIDDEN_PATHS:
+            errors.append(f"forbidden call: {described_as}")
+        elif path.split(".")[0] in FORBIDDEN_IMPORTS:
+            errors.append(f"forbidden import: {described_as}")
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                root = alias.name.split(".")[0]
-                if root in FORBIDDEN_IMPORTS:
+                if alias.name.split(".")[0] in FORBIDDEN_IMPORTS:
                     errors.append(f"forbidden import: {alias.name}")
         elif isinstance(node, ast.ImportFrom):
-            root = (node.module or "").split(".")[0]
-            if root in FORBIDDEN_IMPORTS:
+            if (node.module or "").split(".")[0] in FORBIDDEN_IMPORTS:
                 errors.append(f"forbidden import: from {node.module}")
+            for local, target in _binding_targets(node):
+                check_path(target, f"from {node.module} import {local}")
+        elif isinstance(node, ast.Call):
+            func = _resolve(node.func, bindings)
+            if func in ("getattr", "setattr", "delattr") and len(node.args) >= 2:
+                attr = node.args[1]
+                if isinstance(attr, ast.Constant) and isinstance(attr.value, str):
+                    check_path(
+                        f"{_resolve(node.args[0], bindings)}.{attr.value}",
+                        f"{func}(..., {attr.value!r})",
+                    )
+                else:
+                    errors.append(
+                        f"forbidden construct: {func} with a computed attribute name; "
+                        "use a literal attribute access so the harness can be checked"
+                    )
         elif isinstance(node, ast.Attribute):
-            if isinstance(node.value, ast.Name) and (node.value.id, node.attr) in FORBIDDEN_CALLS:
-                errors.append(f"forbidden call: {node.value.id}.{node.attr}")
-        elif isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
-            errors.append(f"forbidden builtin: {node.id}")
+            path = _resolve(node, bindings)
+            if path in FORBIDDEN_PATHS:
+                errors.append(f"forbidden call: {path}")
+        elif isinstance(node, ast.Name):
+            if node.id in FORBIDDEN_NAMES:
+                errors.append(f"forbidden builtin: {node.id}")
+            elif isinstance(node.ctx, ast.Load):
+                resolved = bindings.get(node.id)
+                if resolved in FORBIDDEN_PATHS:
+                    errors.append(f"forbidden call: {node.id} (resolves to {resolved})")
     return errors
 
 
