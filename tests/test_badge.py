@@ -59,6 +59,22 @@ class TestBuildBadge:
         badge = build_badge(_receipt(untestable=4))
         assert badge["color"] == "lightgrey"
 
+    # --- EDGE_CASE_AUDIT finding #8: all-inconclusive rendered grey ---
+
+    def test_all_inconclusive_is_yellow_not_lightgrey(self) -> None:
+        """Grey means no evidence either way. A run that executed every claim
+        and could not conclude has evidence; it just does not settle."""
+        badge = build_badge(_receipt(inconclusive=5))
+        assert badge["color"] == "yellow"
+        assert badge["message"] == "0 proven, 0 false, 5 inconclusive"
+
+    def test_no_claims_at_all_is_still_lightgrey(self) -> None:
+        assert build_badge(_receipt())["color"] == "lightgrey"
+
+    def test_untestable_only_is_still_lightgrey(self) -> None:
+        """Nothing was executed, so there is genuinely no evidence."""
+        assert build_badge(_receipt(untestable=6))["color"] == "lightgrey"
+
     def test_untestable_never_affects_color(self) -> None:
         assert build_badge(_receipt(proven=2, untestable=9))["color"] == "brightgreen"
 

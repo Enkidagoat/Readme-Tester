@@ -93,7 +93,8 @@ Pages, a `badges` branch, raw.githubusercontent.com) and embed:
 The badge shows `N proven, N false`, plus `N inconclusive` and `N untestable`
 whenever those are non-zero. It is green only when at least one claim is
 `PROVEN` and none are `FALSE`; any `INCONCLUSIVE` turns it yellow, any `FALSE`
-turns it red. `UNTESTABLE` claims never touch the color — they were never
+turns it red, and grey means no claim was executed at all. `UNTESTABLE` claims
+never touch the color — they were never
 executed, so they can neither strengthen nor weaken the verdict — but they are
 always counted in the message, because "1 proven, 50 untestable" is not the
 same result as "1 proven" and a badge that hid the difference would be exactly

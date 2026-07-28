@@ -29,9 +29,14 @@ def build_badge(receipt: dict[str, Any]) -> dict[str, Any]:
     Color policy mirrors the adjudicator's conservatism:
 
     - any ``FALSE``               -> red (a claim is disproven)
-    - no ``PROVEN`` at all        -> lightgrey (nothing was demonstrated)
     - any ``INCONCLUSIVE``        -> yellow (evidence is incomplete)
+    - no ``PROVEN`` at all        -> lightgrey (nothing was demonstrated)
     - otherwise                   -> brightgreen (proven, nothing false)
+
+    ``INCONCLUSIVE`` is tested before ``proven == 0`` so that a run which
+    tried and could not conclude renders yellow rather than grey.  Grey means
+    "no evidence either way"; a run with inconclusive results has evidence,
+    it just does not settle the question.
 
     ``UNTESTABLE`` claims never affect the *color*: they were never executed,
     so they can neither strengthen nor weaken the verdict.  They are always
@@ -59,10 +64,10 @@ def build_badge(receipt: dict[str, Any]) -> dict[str, Any]:
 
     if false:
         color = "red"
-    elif proven == 0:
-        color = "lightgrey"
     elif inconclusive:
         color = "yellow"
+    elif proven == 0:
+        color = "lightgrey"
     else:
         color = "brightgreen"
 
