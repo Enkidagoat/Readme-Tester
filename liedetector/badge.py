@@ -33,8 +33,12 @@ def build_badge(receipt: dict[str, Any]) -> dict[str, Any]:
     - any ``INCONCLUSIVE``        -> yellow (evidence is incomplete)
     - otherwise                   -> brightgreen (proven, nothing false)
 
-    ``UNTESTABLE`` claims never affect the color: they were never executed,
-    so they can neither strengthen nor weaken the badge.
+    ``UNTESTABLE`` claims never affect the *color*: they were never executed,
+    so they can neither strengthen nor weaken the verdict.  They are always
+    reported in the *message*, because a badge that omits them cannot be told
+    apart from one where those claims were verified.  A README with 1 proven
+    and 50 unexecuted claims is not the same result as a README with 1 proven
+    claim, and the badge has to say so.
     """
     tally = receipt.get("verdict_tally")
     if not isinstance(tally, dict):
@@ -44,10 +48,13 @@ def build_badge(receipt: dict[str, Any]) -> dict[str, Any]:
     proven = int(tally.get("PROVEN", 0))
     false = int(tally.get("FALSE", 0))
     inconclusive = int(tally.get("INCONCLUSIVE", 0))
+    untestable = int(tally.get("UNTESTABLE", 0))
 
     parts = [f"{proven} proven", f"{false} false"]
     if inconclusive:
         parts.append(f"{inconclusive} inconclusive")
+    if untestable:
+        parts.append(f"{untestable} untestable")
     message = ", ".join(parts)
 
     if false:

@@ -90,10 +90,15 @@ Pages, a `badges` branch, raw.githubusercontent.com) and embed:
 [![truth report](https://img.shields.io/endpoint?url=<BADGE_JSON_URL>)](<TRUTH_REPORT_URL>)
 ```
 
-The badge shows `N proven, N false` and is green only when at least one claim
-is `PROVEN` and none are `FALSE`; any `INCONCLUSIVE` turns it yellow, any
-`FALSE` turns it red. `UNTESTABLE` claims never touch the color — they were
-never executed. Unlike a hand-placed badge, this one is checkable: the badge
+The badge shows `N proven, N false`, plus `N inconclusive` and `N untestable`
+whenever those are non-zero. It is green only when at least one claim is
+`PROVEN` and none are `FALSE`; any `INCONCLUSIVE` turns it yellow, any `FALSE`
+turns it red. `UNTESTABLE` claims never touch the color — they were never
+executed, so they can neither strengthen nor weaken the verdict — but they are
+always counted in the message, because "1 proven, 50 untestable" is not the
+same result as "1 proven" and a badge that hid the difference would be exactly
+the kind of true-but-misleading claim this tool exists to catch. Unlike a
+hand-placed badge, this one is checkable: the badge
 links to the report, the report footer embeds the receipt hash, and
 `liedetector verify` confirms the receipt against the stored evidence.
 

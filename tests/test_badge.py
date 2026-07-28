@@ -58,10 +58,33 @@ class TestBuildBadge:
     def test_nothing_proven_is_lightgrey(self) -> None:
         badge = build_badge(_receipt(untestable=4))
         assert badge["color"] == "lightgrey"
-        assert badge["message"] == "0 proven, 0 false"
 
     def test_untestable_never_affects_color(self) -> None:
         assert build_badge(_receipt(proven=2, untestable=9))["color"] == "brightgreen"
+
+    # --- EDGE_CASE_AUDIT finding #7: UNTESTABLE was invisible in the badge ---
+
+    def test_untestable_only_claim_set_is_distinguishable_from_silence(self) -> None:
+        """A run where nothing was executed must not look like a run with no
+        claims at all.  Both used to render ``0 proven, 0 false``."""
+        untestable_only = build_badge(_receipt(untestable=7))
+        no_claims = build_badge(_receipt())
+        assert untestable_only["message"] == "0 proven, 0 false, 7 untestable"
+        assert no_claims["message"] == "0 proven, 0 false"
+        assert untestable_only["message"] != no_claims["message"]
+
+    def test_untestable_is_distinguishable_from_fully_proven(self) -> None:
+        """The audit's headline row: 50 of 51 claims never executed used to be
+        indistinguishable from a fully verified README."""
+        mostly_unexecuted = build_badge(_receipt(proven=1, untestable=50))
+        fully_verified = build_badge(_receipt(proven=1))
+        assert mostly_unexecuted["message"] == "1 proven, 0 false, 50 untestable"
+        assert fully_verified["message"] == "1 proven, 0 false"
+        assert mostly_unexecuted["message"] != fully_verified["message"]
+
+    def test_untestable_reported_alongside_inconclusive(self) -> None:
+        badge = build_badge(_receipt(proven=2, inconclusive=1, untestable=3))
+        assert badge["message"] == "2 proven, 0 false, 1 inconclusive, 3 untestable"
 
     def test_missing_tally_raises(self) -> None:
         with pytest.raises(LieDetectorError):
