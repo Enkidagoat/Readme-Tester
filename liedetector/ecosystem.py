@@ -33,10 +33,11 @@ HARNESS_EXTENSION = {
     Ecosystem.NODE: "mjs",
 }
 
-#: Harness-synthesis prompt id per ecosystem.
+#: Harness-synthesis prompt id per ecosystem.  Superseded prompt files stay
+#: in the package so receipts that recorded them remain resolvable.
 HARNESS_PROMPT = {
-    Ecosystem.PYTHON: "harness-v1",
-    Ecosystem.NODE: "harness-js-v1",
+    Ecosystem.PYTHON: "harness-v2",
+    Ecosystem.NODE: "harness-js-v2",
 }
 
 

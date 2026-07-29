@@ -12,23 +12,49 @@ Findings are marked **[REPRODUCED]** when this audit executed the code and
 observed the stated behavior, or **[INSPECTION]** when derived from reading the
 source. Nothing here is inferred from assumption alone.
 
+> **Resolution status (2026-07-28).** All nine findings are fixed on
+> `claude/edge-case-audit-fixes-jmoxkq`, one commit per finding, each with a
+> regression test that fails on the pre-fix code. The audit body below is left
+> exactly as written — it is the record of what was true at `a881d6d` — and the
+> status column plus the notes marked **[FIXED]** are the only additions.
+
 ## Severity ranking (read this first)
 
 Ranked by the directive's rule: silently producing a wrong verdict outranks
 everything, because a wrong verdict is the one thing this tool exists to
 prevent.
 
-| # | Finding | Section | Class |
-|---|---|---|---|
-| 1 | Model error (hallucinated symbol / wrong path) yields `FALSE` at `HIGH` confidence | 1 | **Silent wrong verdict** |
-| 2 | JS control assertion cannot detect a broken install, yet gates `FALSE` | 1 | **Silent wrong verdict** |
-| 3 | Deterministic environment faults repeat identically and read as `FALSE` | 1 | **Silent wrong verdict** |
-| 4 | Python validator bypassable four ways | 2 | Safety boundary |
-| 5 | JS validator bypassable three ways | 2 | Safety boundary |
-| 6 | Over-strict bans block legitimate claims (`asyncio`, `urllib`, `process.env`, …) | 2 | Capability false-negative |
-| 7 | `UNTESTABLE` invisible in badge; unexecuted claims render green | 3 | Misleading signal |
-| 8 | `0 proven + N inconclusive` renders lightgrey, not yellow | 3 | Cosmetic |
-| 9 | Untested fallback paths (`UNKNOWN` fall-through, timeout, TOML decode) | 4 | Coverage gap |
+| # | Finding | Section | Class | Status | Test |
+|---|---|---|---|---|---|
+| 1 | Model error (hallucinated symbol / wrong path) yields `FALSE` at `HIGH` confidence | 1 | **Silent wrong verdict** | **Fixed / verified** | [`test_hallucinated_symbol_is_never_false`, `test_wrong_path_in_node_harness_is_never_false`](tests/test_adjudicate.py) · [`test_hallucinated_symbol_never_reaches_false_through_the_pipeline`](tests/test_pipeline.py) |
+| 2 | JS control assertion cannot detect a broken install, yet gates `FALSE` | 1 | **Silent wrong verdict** | **Fixed / verified** | [`tests/test_js_runner.py`](tests/test_js_runner.py) (8 cases, real `node`) |
+| 3 | Deterministic environment faults repeat identically and read as `FALSE` | 1 | **Silent wrong verdict** | **Fixed / verified** (partial — see note) | [`test_sandbox_faults_are_never_false`](tests/test_adjudicate.py) |
+| 4 | Python validator bypassable four ways | 2 | Safety boundary | **Fixed / verified** | [`test_validator_bypasses_are_closed`](tests/test_synthesize.py) |
+| 5 | JS validator bypassable three ways | 2 | Safety boundary | **Fixed / verified** | [`test_js_validator_bypasses_are_closed`](tests/test_synthesize.py) |
+| 6 | Over-strict bans block legitimate claims (`asyncio`, `urllib`, `process.env`, …) | 2 | Capability false-negative | **Fixed / verified** | [`test_relaxed_imports_are_allowed`, `test_js_relaxed_constructs_are_allowed`](tests/test_synthesize.py) |
+| 7 | `UNTESTABLE` invisible in badge; unexecuted claims render green | 3 | Misleading signal | **Fixed / verified** | [`test_untestable_only_claim_set_is_distinguishable_from_silence`](tests/test_badge.py) |
+| 8 | `0 proven + N inconclusive` renders lightgrey, not yellow | 3 | Cosmetic | **Fixed / verified** | [`test_all_inconclusive_is_yellow_not_lightgrey`](tests/test_badge.py) |
+| 9 | Untested fallback paths (`UNKNOWN` fall-through, timeout, TOML decode) | 4 | Coverage gap | **Fixed / verified** | [`tests/test_fallback_paths.py`](tests/test_fallback_paths.py) (16 cases) |
+
+**Note on #3.** The fix covers the sandbox-caused faults this audit named
+(`--network none`, read-only mounts, absent system libraries), which are now
+`ENVIRONMENT_FAILURE` → `INCONCLUSIVE`. A deterministic fault from outside that
+list — a locale- or timezone-dependent assertion — still repeats identically
+and still earns `HIGH`. Confidence policy itself is unchanged.
+
+### Verified against a real repository
+
+`pallets/click` @ `00e592cea702e0b2caa0dee42489fdb1c22cd845`, real Docker
+sandbox, same harnesses run against both trees:
+
+| | pre-fix (`main`) | post-fix |
+|---|---|---|
+| `click.lazy_subcommand_loader()` (invented symbol) | `FALSE` / `TARGET_FAILURE` / `HIGH` | `INCONCLUSIVE` / `HARNESS_ERROR` / `LOW` |
+| Badge | `red` — "2 proven, 1 false" | `yellow` — "2 proven, 0 false, 1 inconclusive, 1 untestable" |
+| Receipt verification | 17/17 | 17/17 |
+
+A real, honest, widely used project was publicly branded a liar at maximum
+confidence because the model invented an API symbol. It no longer is.
 
 ---
 
@@ -129,6 +155,35 @@ path, not a direct unit call.
 | `HARNESS_FAILURE` | Yes | `test_broken_harness_fails_gracefully` → full `run_pipeline` |
 | `INSTALL_FAILURE` | Yes | `test_install_failure_makes_claims_inconclusive` → full `run_pipeline` |
 | `UNKNOWN` | **No** | Only the `adjudicate()` disagreement branch is exercised, and that test does not assert the category. The `_classify_failure` fall-through at `:86` has **no test**. |
+
+**[FIXED]** `UNKNOWN` is now reached through `adjudicate()` by
+`test_unknown_category_when_claim_never_reported_a_result`. Two categories were
+added by the fixes and both are reached the same way: `HARNESS_ERROR`
+(finding #1) and `ENVIRONMENT_FAILURE` (finding #3).
+
+**[NEW FINDING — reported, not fixed]** Surfaced while verifying finding #1
+against `pallets/click` on real Docker, and outside the scope this directive
+authorises, so it is recorded here rather than patched.
+
+`_traceback_in_target` matches Python frames as `File "…site-packages/<pkg>…"`,
+but the executor runs `pytest -v`, whose default traceback style emits
+`path:line: ExcType` and **no `File "…"` frames at all**. A real run's log
+contains zero of them, so the Python half of that guard effectively never
+fires. Confirmed by calling `_traceback_in_target` on the real execution log
+from the click run: it returns `False` even though the failing frame is
+`/env/venv/lib/python3.12/site-packages/click/__init__.py:144`.
+
+Two consequences:
+
+1. It corroborates §1b — the `:83` fall-through, not the traceback guard, was
+   what produced `FALSE` in practice. The click run reached `FALSE` on `main`
+   through the fall-through even though a genuine in-target frame was present.
+2. Post-fix, evidence path 1 is doing almost no work on the Python side; the
+   assertion-only path carries `FALSE`. That is sound but lossy: a target that
+   raises a non-assertion exception from its own code is a genuine
+   `TARGET_FAILURE` and currently lands `INCONCLUSIVE`. Conservative, but a
+   recall gap worth its own scoped fix (widen the pattern to pytest's
+   `path:line:` form).
 
 ---
 
@@ -260,18 +315,18 @@ one: `UNTESTABLE` is invisible in both color and message.
 
 | Location | Trigger condition | Current behavior | Tested? | Risk if wrong |
 |---|---|---|---|---|
-| `adjudicate.py:86` | Both runs fail, control passes, traceback outside target, `claim_passed is None` | `UNKNOWN` → `INCONCLUSIVE` | **No** | Low — conservative, but the only untested verdict-producing branch |
-| `executor.py:138` | `subprocess.TimeoutExpired` — container exceeds 120s/600s | Kills container, returns `timed_out=True` → `TIMEOUT` | **No** (needs a real hang) | Medium — the timeout path is a core safety guarantee, never exercised |
-| `executor.py:308` | `OSError`/`TimeoutExpired` from `docker info` | `docker_available` returns `(False, str(exc))` | **No** | Low — `doctor` output only |
-| `ecosystem.py:62` | Malformed `pyproject.toml` | Falls back to directory name | **No** | Low — but a bad package name propagates into `_traceback_in_target`, weakening `FALSE` detection |
+| `adjudicate.py:86` | Both runs fail, control passes, traceback outside target, `claim_passed is None` | `UNKNOWN` → `INCONCLUSIVE` | **[FIXED]** yes | Low — conservative, but the only untested verdict-producing branch |
+| `executor.py:138` | `subprocess.TimeoutExpired` — container exceeds 120s/600s | Kills container, returns `timed_out=True` → `TIMEOUT` | **[FIXED]** yes (`subprocess.run` made to raise what a real hang raises) | Medium — the timeout path is a core safety guarantee, never exercised |
+| `executor.py:308` | `OSError`/`TimeoutExpired` from `docker info` | `docker_available` returns `(False, str(exc))` | **[FIXED]** yes (missing binary, hung daemon, daemon error) | Low — `doctor` output only |
+| `ecosystem.py:62` | Malformed `pyproject.toml` | Falls back to directory name | **[FIXED]** yes | Low — but a bad package name propagates into `_traceback_in_target`, weakening `FALSE` detection |
 | `ecosystem.py:72` | Malformed/unreadable `package.json` | Falls back to directory name | Yes (`test_node_package_name_falls_back_to_dir_name`) | — |
 | `llm.py:166` | Provider rejects `json_schema` response format | Demotes to `json_object` + schema in prompt | Yes (`test_providers.py`) | — |
 | `llm.py:205` | Model returns non-JSON | `SchemaValidationError` → one repair | Yes | — |
 | `extract.py:74` | Quote normalizes to empty (whitespace/emphasis only) | Claim dropped | Partially — `test_malformed_readme_yields_no_claims` | Low |
 | `extract.py:89` | Quote absent from README even after normalization | Claim dropped with warning | Yes | Low — **but see note below** |
-| `report.py:98-101` | Referenced artifact missing on disk | Renders placeholder instead of failing | **No** | Low — report-only |
+| `report.py:98-101` | Referenced artifact missing on disk | Renders placeholder instead of failing | **[FIXED]** yes | Low — report-only |
 | `badge.py:86` | Receipt file is not valid JSON | `LieDetectorError` | Yes (`test_invalid_json_raises`) | — |
-| `cli.py:503` | Any `LieDetectorError` reaches top level | Prints `error:`, exit 2 | Partially | Low |
+| `cli.py:503` | Any `LieDetectorError` reaches top level | Prints `error:`, exit 2 | **[FIXED]** yes, across three commands | Low |
 
 **Note on `extract.py:89` (silent recall loss).** The drop path is tested, but
 its *consequence* is unmeasured: in creator-ai-hub-v2 run 3 the claim
@@ -287,6 +342,16 @@ lost this way. The receipt records only what survived.
 
 *Separate from the findings above, per the directive. Each needs its own scoped
 approval; none is applied here.*
+
+> **[FIXED] All six shipped on `claude/edge-case-audit-fixes-jmoxkq`.** Step 1
+> took the second of the two options offered — gating the fall-through on the
+> failure being an assertion — rather than dropping it outright. Dropping it
+> makes every behavioral `FALSE` unreachable, including the bundled demo's
+> `count_words` claim, because a plain `assert target.f(x) == y` anchors its
+> traceback in the harness frame; verified by reproducing the real pytest
+> output. Step 4 was taken as "honestly demote": `SECURITY.md` now states that
+> the sandbox is the boundary and the validator is defense-in-depth, and both
+> validators were hardened as well.
 
 1. **Close the false-accusation path (finding #1).** Make `TARGET_FAILURE`
    require positive evidence — i.e. drop the `:83` fall-through, or gate it on

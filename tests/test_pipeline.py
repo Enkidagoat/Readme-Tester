@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -19,6 +20,7 @@ from liedetector.receipt import verify_receipt
 
 from .conftest import (
     FAILING_HARNESS,
+    HALLUCINATING_HARNESS,
     PASSING_HARNESS,
     FakeExecutor,
     FakeLLM,
@@ -57,7 +59,7 @@ def _scripted_llm() -> FakeLLM:
     )
 
 
-def _run(tmp_path: Path, toy_repo_dir: Path) -> tuple[Path, dict]:
+def _run(tmp_path: Path, toy_repo_dir: Path) -> tuple[Path, dict[str, Any]]:
     result = run_pipeline(
         str(toy_repo_dir),
         llm=_scripted_llm(),
@@ -79,6 +81,37 @@ def test_pipeline_produces_expected_tally(tmp_path: Path, toy_repo_dir: Path) ->
     assert tally["FALSE"] == 1  # count_words
     assert tally["UNTESTABLE"] == 2  # behavioral-proxy + aspirational
     assert tally["INCONCLUSIVE"] == 0
+
+
+def test_hallucinated_symbol_never_reaches_false_through_the_pipeline(
+    tmp_path: Path, toy_repo_dir: Path
+) -> None:
+    """EDGE_CASE_AUDIT finding #1, driven through the real ``run_pipeline``.
+
+    The model writes a harness against an API symbol that does not exist. The
+    repository is blameless, so no claim may be published FALSE; the run is
+    recorded as a harness defect instead.
+    """
+    llm = FakeLLM(
+        [
+            extraction_response(TOY_CLAIMS[:1]),
+            harness_response(
+                HALLUCINATING_HARNESS.format(package="toylib", hypothesis="add")
+            ),
+        ]
+    )
+    result = run_pipeline(
+        str(toy_repo_dir), llm=llm, executor=FakeExecutor(),
+        receipts_dir=tmp_path / "receipts", reports_dir=tmp_path / "reports",
+        harnesses_dir=tmp_path / "harnesses", allow_local=True,
+        timestamp_utc="2026-01-01T00:00:00Z",
+    )
+    receipt = json.loads(result.receipt_path.read_text(encoding="utf-8"))
+    assert receipt["verdict_tally"]["FALSE"] == 0
+    assert receipt["verdict_tally"]["INCONCLUSIVE"] == 1
+    (entry,) = receipt["claims"]
+    assert entry["failure_category"] == "HARNESS_ERROR"
+    assert entry["verdict_confidence"] == "LOW"
 
 
 def test_pipeline_receipt_verifies(tmp_path: Path, toy_repo_dir: Path) -> None:

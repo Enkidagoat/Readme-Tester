@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from liedetector.cli import run_pipeline
 from liedetector.receipt import verify_receipt
@@ -45,7 +46,7 @@ def _scripted_llm() -> FakeLLM:
     )
 
 
-def _run(tmp_path: Path, repo_dir: Path) -> tuple[Path, dict]:
+def _run(tmp_path: Path, repo_dir: Path) -> tuple[Path, dict[str, Any]]:
     result = run_pipeline(
         str(repo_dir),
         llm=_scripted_llm(),

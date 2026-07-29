@@ -37,15 +37,87 @@ INSTALL_TIMEOUT_S = 600
 
 _RESULT_LINE = re.compile(r"::(test_control|test_claim)\b.*\b(PASSED|FAILED|ERROR)")
 
+#: Where the install phase puts the npm-installed copy of the repository.
+JS_APP_ROOT = "/env/app"
+
 #: Static, versioned ESM runner for Node harnesses.  It is written by the
 #: tool, never by the model: the model-generated harness only *exports*
 #: ``test_control`` and ``test_claim``; this runner imports and executes them,
 #: emitting the same ``<name>::test_control PASSED`` result lines pytest -v
 #: produces so one parser serves both ecosystems.
+#:
+#: The control assertion is the entire basis for trusting a ``FALSE``, so the
+#: runner owns it rather than the model.  ``environmentHealthCheck`` is
+#: tool-authored and unconditional; the harness's own ``test_control`` runs
+#: after it and can only ever make the control stricter, never weaker.  This
+#: is what stops a broken ``npm install`` from producing a passing control.
 JS_RUNNER_NAME = "_runner.mjs"
 JS_RUNNER_SOURCE = """\
 // Lie Detector Node harness runner (static, versioned; not model-generated).
 const harnessPath = process.argv[2];
+const appRoot = process.argv[3] || "/env/app";
+
+// The entry point the manifest declares, or null when it declares none.
+function entryPoint(pkg) {
+  const exp = pkg.exports;
+  if (typeof exp === "string") return exp;
+  if (exp && typeof exp === "object") {
+    const dot = exp["."] !== undefined ? exp["."] : exp;
+    if (typeof dot === "string") return dot;
+    if (dot && typeof dot === "object") {
+      for (const key of ["import", "module", "default", "require"]) {
+        if (typeof dot[key] === "string") return dot[key];
+      }
+    }
+  }
+  if (typeof pkg.main === "string") return pkg.main;
+  return null;
+}
+
+// Tool-authored control: prove the *installed application* is healthy, not
+// merely that the read-only repo mount is readable.  Mirrors what `import
+// PACKAGE` proves on the Python path.
+async function environmentHealthCheck() {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+
+  // 1. The install phase copied the repository into the volume.
+  const pkg = JSON.parse(
+    await fs.readFile(path.join(appRoot, "package.json"), "utf8")
+  );
+
+  // 2. If the manifest declares dependencies, npm install must have
+  //    populated them. A missing or empty node_modules is a broken tree.
+  const declared = Object.keys({
+    ...(pkg.dependencies || {}),
+    ...(pkg.devDependencies || {}),
+  });
+  if (declared.length > 0) {
+    let installed;
+    try {
+      installed = await fs.readdir(path.join(appRoot, "node_modules"));
+    } catch (err) {
+      throw new Error(
+        `${declared.length} dependencies declared but node_modules is ` +
+          `unreadable: ${err.message}`
+      );
+    }
+    if (installed.filter((name) => !name.startsWith(".")).length === 0) {
+      throw new Error(
+        `${declared.length} dependencies declared but node_modules is empty`
+      );
+    }
+  }
+
+  // 3. The declared entry point must exist and import.
+  const entry = entryPoint(pkg);
+  if (entry) {
+    const target = path.join(appRoot, entry);
+    await fs.stat(target);
+    await import(target);
+  }
+}
+
 let mod;
 try {
   mod = await import(harnessPath);
@@ -55,22 +127,40 @@ try {
   console.error("harness import failed:", (err && err.stack) || err);
   process.exit(2);
 }
-let failed = false;
-for (const name of ["test_control", "test_claim"]) {
-  const fn = mod[name];
+
+let controlOk = true;
+try {
+  await environmentHealthCheck();
+} catch (err) {
+  controlOk = false;
+  console.error("environment health check failed:", (err && err.stack) || err);
+}
+if (controlOk) {
   try {
-    if (typeof fn !== "function") {
-      throw new Error(`harness does not export a function named ${name}`);
+    if (typeof mod.test_control !== "function") {
+      throw new Error("harness does not export a function named test_control");
     }
-    await fn();
-    console.log(`${harnessPath}::${name} PASSED`);
+    await mod.test_control();
   } catch (err) {
-    failed = true;
-    console.log(`${harnessPath}::${name} FAILED`);
-    console.error(`${name} failed:`, (err && err.stack) || err);
+    controlOk = false;
+    console.error("test_control failed:", (err && err.stack) || err);
   }
 }
-process.exit(failed ? 1 : 0);
+console.log(`${harnessPath}::test_control ${controlOk ? "PASSED" : "FAILED"}`);
+
+let claimOk = true;
+try {
+  if (typeof mod.test_claim !== "function") {
+    throw new Error("harness does not export a function named test_claim");
+  }
+  await mod.test_claim();
+} catch (err) {
+  claimOk = false;
+  console.error("test_claim failed:", (err && err.stack) || err);
+}
+console.log(`${harnessPath}::test_claim ${claimOk ? "PASSED" : "FAILED"}`);
+
+process.exit(controlOk && claimOk ? 0 : 1);
 """
 
 
@@ -237,6 +327,7 @@ class DockerExecutor:
                 runner_path.chmod(0o644)
             entry_cmd = [
                 "node", f"/harness/{JS_RUNNER_NAME}", f"/harness/{harness_path.name}",
+                JS_APP_ROOT,
             ]
         else:
             entry_cmd = [

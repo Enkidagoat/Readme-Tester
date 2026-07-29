@@ -38,6 +38,22 @@ def test_claim():
     assert False  # EXPECT_FAIL
 '''
 
+# A harness that calls an API symbol the model invented.  It is well-formed
+# and passes static validation -- the defect only surfaces at run time, which
+# is exactly why EDGE_CASE_AUDIT finding #1 could publish it as FALSE.
+HALLUCINATING_HARNESS = '''"""Verifies: {hypothesis}"""
+
+
+def test_control():
+    import {package}  # control assertion
+    assert {package} is not None
+
+
+def test_claim():
+    import {package}
+    assert {package}.no_such_function("a") == "b"  # EXPECT_ERROR
+'''
+
 # A harness that violates the static safety scan (forbidden ``socket`` import).
 UNSAFE_HARNESS = (
     "import socket\n\n"
@@ -111,6 +127,51 @@ def make_run(
     )
 
 
+#: A failing run never emits bare result lines: pytest and the Node runner
+#: both print the exception that caused the failure.  Adjudication reads that
+#: body to tell a contradicting value apart from a broken harness, so the fake
+#: sandbox has to reproduce it or it would exercise a shape no real run
+#: produces.  ``{name}`` is the harness file name.
+PYTEST_ASSERTION_FAILURE = """\
+=================================== FAILURES ===================================
+__________________________________ test_claim __________________________________
+
+    def test_claim():
+>       assert False  # EXPECT_FAIL
+E       AssertionError: assert False
+
+/harness/{name}:8: AssertionError
+=========================== short test summary info ============================
+FAILED /harness/{name}::test_claim - AssertionError: assert False
+"""
+
+NODE_ASSERTION_FAILURE = """\
+test_claim failed: AssertionError [ERR_ASSERTION]: The expression evaluated to \
+a falsy value:
+
+  assert.ok(false)
+
+    at test_claim (file:///harness/{name}:10:10)
+"""
+
+#: What a harness that invented an API symbol actually prints.  The traceback
+#: anchors in the harness frame, never in the target package.
+PYTEST_HALLUCINATED_SYMBOL = """\
+=================================== FAILURES ===================================
+__________________________________ test_claim __________________________________
+
+    def test_claim():
+        import toylib
+>       assert toylib.no_such_function("a") == "b"  # EXPECT_ERROR
+E       AttributeError: module 'toylib' has no attribute 'no_such_function'
+
+/harness/{name}:12: AttributeError
+=========================== short test summary info ============================
+FAILED /harness/{name}::test_claim - AttributeError: module 'toylib' has no \
+attribute 'no_such_function'
+"""
+
+
 class FakeExecutor:
     """Sandbox stand-in: harnesses marked EXPECT_PASS pass, EXPECT_FAIL fail."""
 
@@ -137,10 +198,22 @@ class FakeExecutor:
             f"{harness_path.name}::test_control PASSED\n"
             f"{harness_path.name}::test_claim {'PASSED' if passes else 'FAILED'}\n"
         )
+        stderr = ""
+        if "EXPECT_ERROR" in code:
+            # A harness defect (invented symbol): an error, not an assertion.
+            stdout += PYTEST_HALLUCINATED_SYMBOL.format(name=harness_path.name)
+        elif not passes:
+            # The EXPECT_FAIL harnesses fail on a plain `assert`, so emit the
+            # assertion body a real runner would print.
+            if harness_path.suffix == ".mjs":
+                stderr = NODE_ASSERTION_FAILURE.format(name=harness_path.name)
+            else:
+                stdout += PYTEST_ASSERTION_FAILURE.format(name=harness_path.name)
         return make_run(
             run_index=run_index,
             exit_code=0 if passes else 1,
             stdout=stdout,
+            stderr=stderr,
             control_passed=True,
             claim_passed=passes,
         )
