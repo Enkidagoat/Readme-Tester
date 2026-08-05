@@ -114,17 +114,19 @@ class RepositoryInfo:
 
 
 def _clear_readonly(path: str) -> None:
-    """Clear the read-only attribute on every entry under ``path``.
+    """Make every entry under ``path`` writable so ``rmtree`` can remove it.
 
-    Git marks files under ``.git/objects`` read-only; on Windows, unlike
-    POSIX, ``rmtree`` cannot delete a read-only file regardless of directory
-    permissions, so a plain ``rmtree`` silently leaks the clone.  This makes
-    every entry writable first so the follow-up ``rmtree`` actually succeeds.
+    Git marks files under ``.git/objects`` read-only. On Windows a read-only
+    file blocks ``rmtree`` outright; on Linux a directory that has lost its
+    write/execute bits blocks deletion of its children. We OR the owner-write
+    bit onto the existing mode (rather than replacing it) so we never strip
+    the read/execute bits a directory needs to be traversed.
     """
     for root, dirs, files in os.walk(path):
         for name in dirs + files:
+            p = os.path.join(root, name)
             try:
-                os.chmod(os.path.join(root, name), stat.S_IWRITE)
+                os.chmod(p, os.stat(p).st_mode | stat.S_IWUSR | stat.S_IXUSR)
             except OSError:
                 pass
 
@@ -166,10 +168,23 @@ class Workspace:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        if self._tmp is not None:
-            _clear_readonly(self._tmp)
-            shutil.rmtree(self._tmp, ignore_errors=True)
-            self._tmp = None
+        if self._tmp is None:
+            return
+
+        tmp, self._tmp = self._tmp, None
+        _clear_readonly(tmp)
+
+        def _retry(func: Any, path: str, _exc: Any) -> None:
+            try:
+                os.chmod(path, stat.S_IWUSR | stat.S_IXUSR)
+                func(path)
+            except OSError:
+                pass
+
+        if sys.version_info >= (3, 12):
+            shutil.rmtree(tmp, onexc=_retry)
+        else:
+            shutil.rmtree(tmp, onerror=lambda f, p, e: _retry(f, p, e))
 
     def readme_path(self) -> Path:
         """Path to README.md; raises if the repository has none."""
