@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Truth Report &mdash; https://github.com/Enkidagoat/Readme-Tester</title>
+<style>
+:root {
+  --bg: #0b0e14;
+  --panel: #131824;
+  --panel-edge: #1f2736;
+  --ink: #e6e9f0;
+  --ink-dim: #97a0b3;
+  --accent: #7aa2f7;
+  --seal: #c9a24c;
+  --seal-track: #2a2f3d;
+  --proven: #4ade80;
+  --false: #f87171;
+  --inconclusive: #fbbf24;
+  --untestable: #94a3b8;
+  --mono: "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", monospace;
+  --serif: Georgia, "Times New Roman", serif;
+  --sans: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--sans); line-height: 1.55;
+}
+main { max-width: 960px; margin: 0 auto; padding: 3rem 1.5rem 5rem; }
+header.masthead { border-bottom: 1px solid var(--panel-edge); padding-bottom: 2rem; }
+h1 {
+  font-family: var(--serif); font-size: 2.6rem; margin: 0 0 .25rem;
+  letter-spacing: -.02em;
+}
+h1 .tagline { display:block; font-size: 1rem; color: var(--ink-dim); font-family: var(--sans); }
+
+/* Hero scorecard: the one bold element the rest of the page stays quiet around. */
+.hero {
+  display: flex; align-items: center; gap: 2rem; flex-wrap: wrap;
+  margin-top: 2rem; padding: 1.75rem; border-radius: 14px;
+  background: var(--panel); border: 1px solid var(--panel-edge);
+}
+.seal { flex: none; }
+.seal-frac { font-family: var(--serif); font-size: 1.9rem; fill: var(--ink); }
+.seal-label {
+  font-family: var(--sans); font-size: .58rem; letter-spacing: .14em;
+  fill: var(--ink-dim);
+}
+.hero-body { flex: 1 1 320px; }
+.verdict-line {
+  font-family: var(--serif); font-size: 1.3rem; margin: 0 0 .9rem; color: var(--ink);
+}
+.verdict-line b { color: var(--seal); font-weight: 700; }
+.tally { display: flex; gap: .6rem; flex-wrap: wrap; }
+.tally .pill {
+  border: 1px solid var(--panel-edge); border-radius: 999px;
+  padding: .3rem .8rem; font-size: .8rem; background: var(--bg);
+}
+.tally .pill b { font-family: var(--mono); }
+
+/* Provenance: the evidence chain, kept visible (not hidden) but visually quiet. */
+.provenance { margin-top: 1.75rem; }
+.provenance .label {
+  text-transform: uppercase; letter-spacing: .14em; font-size: .68rem;
+  color: var(--ink-dim); margin: 0 0 .6rem;
+}
+table.ledger { width: 100%; border-collapse: collapse; font-size: .8rem; }
+table.ledger td {
+  padding: .35rem 0; border-bottom: 1px solid var(--panel-edge); vertical-align: top;
+}
+table.ledger td.k { color: var(--ink-dim); width: 34%; padding-right: 1rem; white-space: nowrap; }
+table.ledger td.v { font-family: var(--mono); color: var(--ink); word-break: break-all; }
+
+section.claim {
+  background: var(--panel); border: 1px solid var(--panel-edge);
+  border-left-width: 4px; border-radius: 10px; margin-top: 1.5rem; padding: 1.5rem 1.75rem;
+}
+.claim .verdict-row { display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+.verdict {
+  font-family: var(--mono); font-weight: 700; font-size: .95rem;
+  letter-spacing: .08em; padding: .15rem .7rem; border-radius: 6px;
+  border: 1px solid currentColor;
+}
+.claim .loc { color: var(--ink-dim); font-size: .8rem; font-family: var(--mono); }
+blockquote.quote {
+  font-family: var(--serif); font-size: 1.15rem; font-style: italic;
+  border-left: 3px solid var(--accent); margin: 1rem 0; padding: .2rem 0 .2rem 1rem;
+}
+.label { text-transform: uppercase; letter-spacing: .14em; font-size: .68rem;
+         color: var(--ink-dim); margin: 1.1rem 0 .3rem; }
+.hypothesis { color: var(--ink); }
+pre {
+  background: #0a0d13; border: 1px solid var(--panel-edge); border-radius: 8px;
+  padding: .9rem 1rem; overflow-x: auto; font-family: var(--mono);
+  font-size: .78rem; line-height: 1.5; color: #c9d3e8;
+}
+details > summary { cursor: pointer; color: var(--accent); font-size: .85rem; }
+.hashes { font-family: var(--mono); font-size: .72rem; color: var(--ink-dim);
+          word-break: break-all; }
+.failcat { font-family: var(--mono); color: var(--inconclusive); font-size: .85rem; }
+footer { margin-top: 4rem; border-top: 1px solid var(--panel-edge);
+         padding-top: 1.5rem; color: var(--ink-dim); font-size: .8rem; }
+footer code { font-family: var(--mono); word-break: break-all; color: var(--ink); }
+
+@media print {
+  body { background: #fff; color: #111; }
+  .hero, section.claim { background: #fafafa; }
+  pre { background: #f2f2f2; color: #222; }
+}
+</style>
+</head>
+<body>
+<main>
+<header class="masthead">
+  <h1>Truth Report
+    <span class="tagline">The Lie Detector &mdash; turn READMEs into tests.</span></h1>
+</header>
+<div class="hero">
+  <svg class="seal" viewBox="0 0 130 130" width="130" height="130"
+     role="img" aria-label="0/4 testable claims proven true">
+  <circle cx="65" cy="65" r="54" fill="none" stroke="var(--seal-track)" stroke-width="10"/>
+  <circle cx="65" cy="65" r="54" fill="none" stroke="var(--seal)" stroke-width="10"
+    stroke-dasharray="0.00 339.29" stroke-linecap="round"
+    transform="rotate(-90 65 65)"/>
+  <text x="65" y="62" text-anchor="middle" class="seal-frac">0/4</text>
+  <text x="65" y="80" text-anchor="middle" class="seal-label">PROVEN</text>
+</svg>
+  <div class="hero-body">
+    <p class="verdict-line"><b>0 of 4</b> testable README claims were verified true. <b>2</b> were false.</p>
+    <div class="tally"><span class="pill" style="color:var(--proven)"><b>0</b> PROVEN</span><span class="pill" style="color:var(--false)"><b>2</b> FALSE</span><span class="pill" style="color:var(--inconclusive)"><b>2</b> INCONCLUSIVE</span><span class="pill" style="color:var(--untestable)"><b>0</b> UNTESTABLE</span></div>
+  </div>
+</div>
+<div class="provenance">
+  <p class="label">Chain of custody</p>
+  <table class="ledger"><tr><td class="k">Repository</td><td class="v">https://github.com/Enkidagoat/Readme-Tester</td></tr><tr><td class="k">Commit</td><td class="v">922b7285ede341a2628ade8ad22d7fef2a9f652e</td></tr><tr><td class="k">Timestamp (UTC)</td><td class="v">2026-08-07T21:26:44Z</td></tr><tr><td class="k">Runtime duration</td><td class="v">107.9s</td></tr><tr><td class="k">Environment fingerprint</td><td class="v">640001075897e2c9</td></tr><tr><td class="k">Sandbox image</td><td class="v">sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de</td></tr><tr><td class="k">Prompt versions</td><td class="v">extraction=extract-v1, harness=harness-v2, harness_js=harness-js-v2</td></tr><tr><td class="k">Receipt hash (SHA-256)</td><td class="v">1dfbe0a27b8ec2bced3995cc50abb6a0ca8bec7ff32549789f024d9de95eeddb</td></tr></table>
+</div>
+<section class="claim" style="border-left-color:var(--inconclusive)">
+<div class="verdict-row">
+<span class="verdict" style="color:var(--inconclusive)">INCONCLUSIVE</span>
+<span class="loc">README.md:5 &middot; clm-5cd0cf79c204 &middot; deterministic</span>
+</div>
+<blockquote class="quote">&ldquo;The Lie Detector is a deterministic CLI tool that verifies factual claims in a repository&#x27;s README by generating executable verification harnesses and producing an evidence-backed Truth Report, backed by an immutable verification receipt.&rdquo;</blockquote>
+<p class="label">Interpreted hypothesis</p>
+<p class="hypothesis">The Lie Detector CLI tool, when executed, generates executable verification harnesses, produces an evidence-backed Truth Report, and an immutable verification receipt using a README as input.</p>
+<p class="label">Interpretation notes</p>
+<p class="hypothesis">The claim asserts that the tool deterministically processes a README to produce specific outputs, which is something that can be verified by executing the tool.</p>
+<p class="hashes">verdict confidence: LOW &middot; Both executions failed, but test_claim died of a harness defect (a missing symbol, a wrong path, a bad call) rather than a failed assertion, and no traceback frame resolves inside the target. The claim was never actually tested, so this is never FALSE.</p>
+<p class="failcat">failure category: HARNESS_ERROR</p>
+<details><summary>Generated harness</summary>
+<pre>&quot;&quot;&quot;
+Verifies the claim: &quot;The Lie Detector CLI tool, when executed, generates executable verification harnesses,
+produces an evidence-backed Truth Report, and an immutable verification receipt using a README as input.&quot;
+&quot;&quot;&quot;
+
+import importlib.metadata
+
+
+def test_control():
+    import liedetector  # control assertion
+    assert liedetector is not None
+
+
+def test_claim():
+    # Assume the package has metadata that describes this functionality.
+    # Since the harness cannot execute the CLI or modify the environment,
+    # it will check for entry points that suggest the presence of such a CLI.
+
+    entry_points = importlib.metadata.entry_points()
+    cli_tools = []
+    if hasattr(entry_points, &quot;select&quot;):
+        cli_tools = entry_points.select(group=&quot;console_scripts&quot;)
+    else:
+        # For older Python versions
+        cli_tools = entry_points.get(&quot;console_scripts&quot;, [])
+
+    lie_detector_cli = None
+    for entry_point in cli_tools:
+        if entry_point.name == &quot;liedetector&quot;:
+            lie_detector_cli = entry_point
+            break
+
+    # Assert that the CLI tool exists
+    assert lie_detector_cli is not None
+    
+    # We assume that the presence of this CLI tool with the specified name
+    # suggests that it provides the stated functionalities of generating verification harnesses,
+    # truth reports, and receipts, as these are described features within &quot;liedetector&quot;.
+    # Actual functional checks would require execution privileges.
+    assert &#x27;verify&#x27; in dir(liedetector)  # An indicative assumption about the API
+    assert &#x27;generate_truth_report&#x27; in dir(liedetector)  # Another indicative assumption
+    assert &#x27;create_receipt&#x27; in dir(liedetector)  # Final indicative assumption for verification receipt
+</pre></details>
+<details><summary>Execution log &mdash; run 1 (exit 1)</summary>
+<pre># run 1
+# exit_code=1 timed_out=False
+## stdout
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0 -- /env/venv/bin/python
+rootdir: /harness
+plugins: anyio-4.14.2
+collecting ... collected 2 items
+
+../harness/clm-5cd0cf79c204.py::test_control PASSED                      [ 50%]
+../harness/clm-5cd0cf79c204.py::test_claim FAILED                        [100%]
+
+=================================== FAILURES ===================================
+__________________________________ test_claim __________________________________
+
+    def test_claim():
+        # Assume the package has metadata that describes this functionality.
+        # Since the harness cannot execute the CLI or modify the environment,
+        # it will check for entry points that suggest the presence of such a CLI.
+    
+        entry_points = importlib.metadata.entry_points()
+        cli_tools = []
+        if hasattr(entry_points, &quot;select&quot;):
+            cli_tools = entry_points.select(group=&quot;console_scripts&quot;)
+        else:
+            # For older Python versions
+            cli_tools = entry_points.get(&quot;console_scripts&quot;, [])
+    
+        lie_detector_cli = None
+        for entry_point in cli_tools:
+            if entry_point.name == &quot;liedetector&quot;:
+                lie_detector_cli = entry_point
+                break
+    
+        # Assert that the CLI tool exists
+        assert lie_detector_cli is not None
+    
+        # We assume that the presence of this CLI tool with the specified name
+        # suggests that it provides the stated functionalities of generating verification harnesses,
+        # truth reports, and receipts, as these are described features within &quot;liedetector&quot;.
+        # Actual functional checks would require execution privileges.
+&gt;       assert &#x27;verify&#x27; in dir(liedetector)  # An indicative assumption about the API
+                               ^^^^^^^^^^^
+E       NameError: name &#x27;liedetector&#x27; is not defined
+
+/harness/clm-5cd0cf79c204.py:40: NameError
+=========================== short test summary info ============================
+FAILED ../harness/clm-5cd0cf79c204.py::test_claim - NameError: name &#x27;liedetec...
+========================= 1 failed, 1 passed in 0.03s ==========================
+
+## stderr
+
+</pre></details>
+<details><summary>Execution log &mdash; run 2 (exit 1)</summary>
+<pre># run 2
+# exit_code=1 timed_out=False
+## stdout
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0 -- /env/venv/bin/python
+rootdir: /harness
+plugins: anyio-4.14.2
+collecting ... collected 2 items
+
+../harness/clm-5cd0cf79c204.py::test_control PASSED                      [ 50%]
+../harness/clm-5cd0cf79c204.py::test_claim FAILED                        [100%]
+
+=================================== FAILURES ===================================
+__________________________________ test_claim __________________________________
+
+    def test_claim():
+        # Assume the package has metadata that describes this functionality.
+        # Since the harness cannot execute the CLI or modify the environment,
+        # it will check for entry points that suggest the presence of such a CLI.
+    
+        entry_points = importlib.metadata.entry_points()
+        cli_tools = []
+        if hasattr(entry_points, &quot;select&quot;):
+            cli_tools = entry_points.select(group=&quot;console_scripts&quot;)
+        else:
+            # For older Python versions
+            cli_tools = entry_points.get(&quot;console_scripts&quot;, [])
+    
+        lie_detector_cli = None
+        for entry_point in cli_tools:
+            if entry_point.name == &quot;liedetector&quot;:
+                lie_detector_cli = entry_point
+                break
+    
+        # Assert that the CLI tool exists
+        assert lie_detector_cli is not None
+    
+        # We assume that the presence of this CLI tool with the specified name
+        # suggests that it provides the stated functionalities of generating verification harnesses,
+        # truth reports, and receipts, as these are described features within &quot;liedetector&quot;.
+        # Actual functional checks would require execution privileges.
+&gt;       assert &#x27;verify&#x27; in dir(liedetector)  # An indicative assumption about the API
+                               ^^^^^^^^^^^
+E       NameError: name &#x27;liedetector&#x27; is not defined
+
+/harness/clm-5cd0cf79c204.py:40: NameError
+=========================== short test summary info ============================
+FAILED ../harness/clm-5cd0cf79c204.py::test_claim - NameError: name &#x27;liedetec...
+========================= 1 failed, 1 passed in 0.04s ==========================
+
+## stderr
+
+</pre></details>
+<p class="label">Reproduce</p>
+<pre>liedetector run https://github.com/Enkidagoat/Readme-Tester</pre>
+<p class="label">Evidence hashes (SHA-256)</p>
+<p class="hashes">claim a05bb959086f02428b06990bf7611018b92806bca76c1c4e1719a62aa16924cc<br>harness ed0c0e1c2c948f78183d8a6245ea9439d37d60512a67c1db42f465912b1c1ac5<br>run1 log 13a2bdb7200509456250718b3d493b415c0f9966cc4657cc5a91418b26963062<br>run2 log 9a8d1869a0b54ffe9807a58441b3d132f8c6853ab828b5a6d5656711038fa260</p>
+</section>
+<section class="claim" style="border-left-color:var(--inconclusive)">
+<div class="verdict-row">
+<span class="verdict" style="color:var(--inconclusive)">INCONCLUSIVE</span>
+<span class="loc">README.md:49 &middot; clm-8f161c607b35 &middot; deterministic</span>
+</div>
+<blockquote class="quote">&ldquo;Rerunning against the same commit with the same tool version produces the same claims.&rdquo;</blockquote>
+<p class="label">Interpreted hypothesis</p>
+<p class="hypothesis">Rerunning The Lie Detector against the same repository commit with the same version of the tool always produces identical claims.</p>
+<p class="label">Interpretation notes</p>
+<p class="hypothesis">This statement makes a claim about the deterministic nature of the tool concerning its outputs across runs, which is directly testable.</p>
+<p class="hashes">verdict confidence: LOW &middot; Both executions failed, but test_claim died of a harness defect (a missing symbol, a wrong path, a bad call) rather than a failed assertion, and no traceback frame resolves inside the target. The claim was never actually tested, so this is never FALSE.</p>
+<p class="failcat">failure category: HARNESS_ERROR</p>
+<details><summary>Generated harness</summary>
+<pre>&quot;&quot;&quot;
+Verifying claim: Rerunning The Lie Detector against the same repository commit with the
+same version of the tool always produces identical claims.
+&quot;&quot;&quot;
+
+def test_control():
+    import liedetector  # control assertion
+    assert liedetector is not None
+
+def test_claim():
+    import liedetector
+    import tempfile
+    import os
+
+    # Define fake repository commit and tool version
+    repo_commit = &#x27;fake_commit_hash&#x27;
+    tool_version = &#x27;1.0.0&#x27;
+
+    # Simulate running the tool twice with the same commit and version
+    with tempfile.TemporaryDirectory() as temp_dir:
+        first_run_file = os.path.join(temp_dir, &#x27;first_run.json&#x27;)
+        second_run_file = os.path.join(temp_dir, &#x27;second_run.json&#x27;)
+        
+        # Assuming the presence of a function `run_tool` for simulating
+        # liedetector&#x27;s behavior; it outputs claims to a specified file.
+        if not hasattr(liedetector, &#x27;run_tool&#x27;):
+            raise AttributeError(&quot;run_tool function doesn&#x27;t exist&quot;)
+
+        # Run the tool the first time
+        liedetector.run_tool(repo_commit, tool_version, output_path=first_run_file)
+
+        # Run the tool the second time
+        liedetector.run_tool(repo_commit, tool_version, output_path=second_run_file)
+
+        # Read the outputs
+        with open(first_run_file, &#x27;r&#x27;) as f:
+            first_run_output = f.read()
+
+        with open(second_run_file, &#x27;r&#x27;) as f:
+            second_run_output = f.read()
+
+        # Assert the outputs are identical
+        assert first_run_output == second_run_output, &quot;Outputs are not identical across runs&quot;</pre></details>
+<details><summary>Execution log &mdash; run 1 (exit 1)</summary>
+<pre># run 1
+# exit_code=1 timed_out=False
+## stdout
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0 -- /env/venv/bin/python
+rootdir: /harness
+plugins: anyio-4.14.2
+collecting ... collected 2 items
+
+../harness/clm-8f161c607b35.py::test_control PASSED                      [ 50%]
+../harness/clm-8f161c607b35.py::test_claim FAILED                        [100%]
+
+=================================== FAILURES ===================================
+__________________________________ test_claim __________________________________
+
+    def test_claim():
+        import liedetector
+        import tempfile
+        import os
+    
+        # Define fake repository commit and tool version
+        repo_commit = &#x27;fake_commit_hash&#x27;
+        tool_version = &#x27;1.0.0&#x27;
+    
+        # Simulate running the tool twice with the same commit and version
+        with tempfile.TemporaryDirectory() as temp_dir:
+            first_run_file = os.path.join(temp_dir, &#x27;first_run.json&#x27;)
+            second_run_file = os.path.join(temp_dir, &#x27;second_run.json&#x27;)
+    
+            # Assuming the presence of a function `run_tool` for simulating
+            # liedetector&#x27;s behavior; it outputs claims to a specified file.
+            if not hasattr(liedetector, &#x27;run_tool&#x27;):
+&gt;               raise AttributeError(&quot;run_tool function doesn&#x27;t exist&quot;)
+E               AttributeError: run_tool function doesn&#x27;t exist
+
+/harness/clm-8f161c607b35.py:27: AttributeError
+=========================== short test summary info ============================
+FAILED ../harness/clm-8f161c607b35.py::test_claim - AttributeError: run_tool ...
+========================= 1 failed, 1 passed in 0.03s ==========================
+
+## stderr
+
+</pre></details>
+<details><summary>Execution log &mdash; run 2 (exit 1)</summary>
+<pre># run 2
+# exit_code=1 timed_out=False
+## stdout
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0 -- /env/venv/bin/python
+rootdir: /harness
+plugins: anyio-4.14.2
+collecting ... collected 2 items
+
+../harness/clm-8f161c607b35.py::test_control PASSED                      [ 50%]
+../harness/clm-8f161c607b35.py::test_claim FAILED                        [100%]
+
+=================================== FAILURES ===================================
+__________________________________ test_claim __________________________________
+
+    def test_claim():
+        import liedetector
+        import tempfile
+        import os
+    
+        # Define fake repository commit and tool version
+        repo_commit = &#x27;fake_commit_hash&#x27;
+        tool_version = &#x27;1.0.0&#x27;
+    
+        # Simulate running the tool twice with the same commit and version
+        with tempfile.TemporaryDirectory() as temp_dir:
+            first_run_file = os.path.join(temp_dir, &#x27;first_run.json&#x27;)
+            second_run_file = os.path.join(temp_dir, &#x27;second_run.json&#x27;)
+    
+            # Assuming the presence of a function `run_tool` for simulating
+            # liedetector&#x27;s behavior; it outputs claims to a specified file.
+            if not hasattr(liedetector, &#x27;run_tool&#x27;):
+&gt;               raise AttributeError(&quot;run_tool function doesn&#x27;t exist&quot;)
+E               AttributeError: run_tool function doesn&#x27;t exist
+
+/harness/clm-8f161c607b35.py:27: AttributeError
+=========================== short test summary info ============================
+FAILED ../harness/clm-8f161c607b35.py::test_claim - AttributeError: run_tool ...
+========================= 1 failed, 1 passed in 0.03s ==========================
+
+## stderr
+
+</pre></details>
+<p class="label">Reproduce</p>
+<pre>liedetector run https://github.com/Enkidagoat/Readme-Tester</pre>
+<p class="label">Evidence hashes (SHA-256)</p>
+<p class="hashes">claim 16f81f1a6b85a97487a4c2fce962be16212edffaad12c11a107f5d9206c3f53e<br>harness 6c8d48346c80c8aefa16646ba4fa41d4eeef491fa6f642adbd357d0120fbe1eb<br>run1 log 6fed7dae7abc4c6d20ad222c2a2e1ab662899534221f5dadd1f0fb365feae876<br>run2 log 5023f7ed68259406a990ca1a0ae2978785ee2a4f3b402f3d0ff5a480fdb4609d</p>
+</section>
+<section class="claim" style="border-left-color:var(--false)">
+<div class="verdict-row">
+<span class="verdict" style="color:var(--false)">FALSE</span>
+<span class="loc">README.md:77 &middot; clm-5d97acd9521c &middot; deterministic</span>
+</div>
+<blockquote class="quote">&ldquo;`liedetector verify` recomputes every artifact hash and the receipt hash from stored artifacts and confirms they match&rdquo;</blockquote>
+<p class="label">Interpreted hypothesis</p>
+<p class="hypothesis">Executing `liedetector verify` recomputes hashes for every artifact and the receipt and confirms their integrity according to the stored evidence.</p>
+<p class="label">Interpretation notes</p>
+<p class="hypothesis">`verify` is a command that checks hash integrity, which is testable by executing the command and confirming the described behavior.</p>
+<p class="hashes">verdict confidence: HIGH &middot; Both executions failed, the control assertion passed, and the failure originates in the target package.</p>
+<p class="failcat">failure category: TARGET_FAILURE</p>
+<details><summary>Generated harness</summary>
+<pre>&quot;&quot;&quot;
+Verifies the claim: &quot;Executing `liedetector verify` recomputes hashes for every artifact and the receipt and confirms their integrity according to the stored evidence.&quot;
+&quot;&quot;&quot;
+import liedetector
+import tempfile
+import os
+
+# Create a minimal environment to simulate artifacts and a receipt
+
+def test_control():
+    import liedetector  # control assertion
+    assert liedetector is not None
+
+
+def test_claim():
+    # Create temporary directory to simulate artifact storage
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Suppose we have API to `generate_test_data` which is hypothetical here
+        # and will simulate creating artifacts and receipts
+        artifacts_path = os.path.join(tmpdir, &#x27;artifacts&#x27;)
+        receipt_path = os.path.join(tmpdir, &#x27;receipt&#x27;)
+        
+        os.makedirs(artifacts_path, exist_ok=True)
+        with open(os.path.join(artifacts_path, &#x27;artifact1.txt&#x27;), &#x27;w&#x27;) as f:
+            f.write(&#x27;test content 1&#x27;)
+        with open(os.path.join(artifacts_path, &#x27;artifact2.txt&#x27;), &#x27;w&#x27;) as f:
+            f.write(&#x27;test content 2&#x27;)
+        
+        # Supposed API call to generate a receipt which is hypothetical here
+        # For the sake of this demonstration, we simulate receipt
+        with open(receipt_path, &#x27;w&#x27;) as f:
+            f.write(&#x27;expected hash of artifact contents&#x27;)
+        
+        # Simulate verify process
+        # Here we suppose `liedetector.verify` is the API that checks hash integrity
+        if hasattr(liedetector, &#x27;verify&#x27;):
+            result = liedetector.verify(artifacts_path, receipt_path)
+            assert result is True, &quot;The integrity of artifacts and receipt could not be confirmed&quot;
+        else:
+            assert False, &quot;`verify` function not found in `liedetector` package&quot;  
+</pre></details>
+<details><summary>Execution log &mdash; run 1 (exit 1)</summary>
+<pre># run 1
+# exit_code=1 timed_out=False
+## stdout
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0 -- /env/venv/bin/python
+rootdir: /harness
+plugins: anyio-4.14.2
+collecting ... collected 2 items
+
+../harness/clm-5d97acd9521c.py::test_control PASSED                      [ 50%]
+../harness/clm-5d97acd9521c.py::test_claim FAILED                        [100%]
+
+=================================== FAILURES ===================================
+__________________________________ test_claim __________________________________
+
+    def test_claim():
+        # Create temporary directory to simulate artifact storage
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Suppose we have API to `generate_test_data` which is hypothetical here
+            # and will simulate creating artifacts and receipts
+            artifacts_path = os.path.join(tmpdir, &#x27;artifacts&#x27;)
+            receipt_path = os.path.join(tmpdir, &#x27;receipt&#x27;)
+    
+            os.makedirs(artifacts_path, exist_ok=True)
+            with open(os.path.join(artifacts_path, &#x27;artifact1.txt&#x27;), &#x27;w&#x27;) as f:
+                f.write(&#x27;test content 1&#x27;)
+            with open(os.path.join(artifacts_path, &#x27;artifact2.txt&#x27;), &#x27;w&#x27;) as f:
+                f.write(&#x27;test content 2&#x27;)
+    
+            # Supposed API call to generate a receipt which is hypothetical here
+            # For the sake of this demonstration, we simulate receipt
+            with open(receipt_path, &#x27;w&#x27;) as f:
+                f.write(&#x27;expected hash of artifact contents&#x27;)
+    
+            # Simulate verify process
+            # Here we suppose `liedetector.verify` is the API that checks hash integrity
+            if hasattr(liedetector, &#x27;verify&#x27;):
+                result = liedetector.verify(artifacts_path, receipt_path)
+                assert result is True, &quot;The integrity of artifacts and receipt could not be confirmed&quot;
+            else:
+&gt;               assert False, &quot;`verify` function not found in `liedetector` package&quot;
+E               AssertionError: `verify` function not found in `liedetector` package
+E               assert False
+
+/harness/clm-5d97acd9521c.py:40: AssertionError
+=========================== short test summary info ============================
+FAILED ../harness/clm-5d97acd9521c.py::test_claim - AssertionError: `verify` ...
+========================= 1 failed, 1 passed in 0.03s ==========================
+
+## stderr
+
+</pre></details>
+<details><summary>Execution log &mdash; run 2 (exit 1)</summary>
+<pre># run 2
+# exit_code=1 timed_out=False
+## stdout
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0 -- /env/venv/bin/python
+rootdir: /harness
+plugins: anyio-4.14.2
+collecting ... collected 2 items
+
+../harness/clm-5d97acd9521c.py::test_control PASSED                      [ 50%]
+../harness/clm-5d97acd9521c.py::test_claim FAILED                        [100%]
+
+=================================== FAILURES ===================================
+__________________________________ test_claim __________________________________
+
+    def test_claim():
+        # Create temporary directory to simulate artifact storage
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Suppose we have API to `generate_test_data` which is hypothetical here
+            # and will simulate creating artifacts and receipts
+            artifacts_path = os.path.join(tmpdir, &#x27;artifacts&#x27;)
+            receipt_path = os.path.join(tmpdir, &#x27;receipt&#x27;)
+    
+            os.makedirs(artifacts_path, exist_ok=True)
+            with open(os.path.join(artifacts_path, &#x27;artifact1.txt&#x27;), &#x27;w&#x27;) as f:
+                f.write(&#x27;test content 1&#x27;)
+            with open(os.path.join(artifacts_path, &#x27;artifact2.txt&#x27;), &#x27;w&#x27;) as f:
+                f.write(&#x27;test content 2&#x27;)
+    
+            # Supposed API call to generate a receipt which is hypothetical here
+            # For the sake of this demonstration, we simulate receipt
+            with open(receipt_path, &#x27;w&#x27;) as f:
+                f.write(&#x27;expected hash of artifact contents&#x27;)
+    
+            # Simulate verify process
+            # Here we suppose `liedetector.verify` is the API that checks hash integrity
+            if hasattr(liedetector, &#x27;verify&#x27;):
+                result = liedetector.verify(artifacts_path, receipt_path)
+                assert result is True, &quot;The integrity of artifacts and receipt could not be confirmed&quot;
+            else:
+&gt;               assert False, &quot;`verify` function not found in `liedetector` package&quot;
+E               AssertionError: `verify` function not found in `liedetector` package
+E               assert False
+
+/harness/clm-5d97acd9521c.py:40: AssertionError
+=========================== short test summary info ============================
+FAILED ../harness/clm-5d97acd9521c.py::test_claim - AssertionError: `verify` ...
+========================= 1 failed, 1 passed in 0.03s ==========================
+
+## stderr
+
+</pre></details>
+<p class="label">Reproduce</p>
+<pre>liedetector run https://github.com/Enkidagoat/Readme-Tester</pre>
+<p class="label">Evidence hashes (SHA-256)</p>
+<p class="hashes">claim f09c627a5ced0d603e89c9e4b6b3d6b9bea5fc9ca10cc56712c3f0060e5a7f94<br>harness 619b928d9515c92ede05cffce05830fff5c9d09d208d7f057a1e819aa20eae18<br>run1 log 4cd37a2b95576944b962d2a6cb4a857256e9590a0891f2489e0a048d7ccf0ace<br>run2 log 00ca740241c673af9bdb290d56e5e560a874915c089ec77cfce492617c2317b6</p>
+</section>
+<section class="claim" style="border-left-color:var(--false)">
+<div class="verdict-row">
+<span class="verdict" style="color:var(--false)">FALSE</span>
+<span class="loc">README.md:174 &middot; clm-106ceba77099 &middot; environment-bound</span>
+</div>
+<blockquote class="quote">&ldquo;Supported: Python repositories (pip-installable, pytest harnesses) and Node repositories (npm-installable, ESM harnesses run by a static bundled runner)&rdquo;</blockquote>
+<p class="label">Interpreted hypothesis</p>
+<p class="hypothesis">The Lie Detector supports Python repositories via pip-installation with pytest harnesses and Node repositories via npm-installation with ESM harnesses.</p>
+<p class="label">Interpretation notes</p>
+<p class="hypothesis">Statements about installation and support pertain to compatibility with software environments, which depend on external factors and can be tested in those specific environments.</p>
+<p class="hashes">verdict confidence: HIGH &middot; Both executions failed, the control assertion passed, and the failure originates in the target package.</p>
+<p class="failcat">failure category: TARGET_FAILURE</p>
+<details><summary>Generated harness</summary>
+<pre>&quot;&quot;&quot;
+Verifying the hypothesis:
+The Lie Detector supports Python repositories via pip-installation with pytest harnesses and Node repositories via npm-installation with ESM harnesses.
+&quot;&quot;&quot;
+
+def test_control():
+    import liedetector  # control assertion
+    assert liedetector is not None
+
+
+def test_claim():
+    import liedetector
+    
+    # Check if there&#x27;s an attribute or documentation indicating support for Python repositories
+    assert hasattr(liedetector, &#x27;SUPPORTED_LANGUAGES&#x27;), &quot;The lie detector should have a SUPPORTED_LANGUAGES attribute&quot;
+    supported_languages = getattr(liedetector, &#x27;SUPPORTED_LANGUAGES&#x27;)
+    
+    # We expect Python support to be explicitly mentioned
+    assert &#x27;Python&#x27; in supported_languages, &quot;Python support is not mentioned in SUPPORTED_LANGUAGES&quot;
+    
+    # Check support for pytest (implicitly indicates it can utilize pytest harnesses)
+    assert hasattr(liedetector, &#x27;test_harness_frameworks&#x27;), &quot;Should mention which test harness frameworks it supports&quot;
+    test_harness_frameworks = getattr(liedetector, &#x27;test_harness_frameworks&#x27;)
+    
+    # We expect pytest support to be explicitly mentioned
+    assert &#x27;pytest&#x27; in test_harness_frameworks, &quot;pytest support is not mentioned in test_harness_frameworks&quot;
+    
+    # Additional checks if available (this would extend our test to also check for Node/ESM support)
+    if hasattr(liedetector, &#x27;SUPPORTED_LANGUAGES&#x27;):
+        assert &#x27;Node&#x27; in supported_languages, &quot;Node support is not mentioned in SUPPORTED_LANGUAGES&quot;
+    
+    if hasattr(liedetector, &#x27;esm_support&#x27;):
+        esm_support = getattr(liedetector, &#x27;esm_support&#x27;)
+        assert esm_support is True, &quot;ESM support should be True for Node repositories&quot;
+</pre></details>
+<details><summary>Execution log &mdash; run 1 (exit 1)</summary>
+<pre># run 1
+# exit_code=1 timed_out=False
+## stdout
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0 -- /env/venv/bin/python
+rootdir: /harness
+plugins: anyio-4.14.2
+collecting ... collected 2 items
+
+../harness/clm-106ceba77099.py::test_control PASSED                      [ 50%]
+../harness/clm-106ceba77099.py::test_claim FAILED                        [100%]
+
+=================================== FAILURES ===================================
+__________________________________ test_claim __________________________________
+
+    def test_claim():
+        import liedetector
+    
+        # Check if there&#x27;s an attribute or documentation indicating support for Python repositories
+&gt;       assert hasattr(liedetector, &#x27;SUPPORTED_LANGUAGES&#x27;), &quot;The lie detector should have a SUPPORTED_LANGUAGES attribute&quot;
+E       AssertionError: The lie detector should have a SUPPORTED_LANGUAGES attribute
+E       assert False
+E        +  where False = hasattr(&lt;module &#x27;liedetector&#x27; from &#x27;/env/venv/lib/python3.12/site-packages/liedetector/__init__.py&#x27;&gt;, &#x27;SUPPORTED_LANGUAGES&#x27;)
+
+/harness/clm-106ceba77099.py:15: AssertionError
+=========================== short test summary info ============================
+FAILED ../harness/clm-106ceba77099.py::test_claim - AssertionError: The lie d...
+========================= 1 failed, 1 passed in 0.03s ==========================
+
+## stderr
+
+</pre></details>
+<details><summary>Execution log &mdash; run 2 (exit 1)</summary>
+<pre># run 2
+# exit_code=1 timed_out=False
+## stdout
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0 -- /env/venv/bin/python
+rootdir: /harness
+plugins: anyio-4.14.2
+collecting ... collected 2 items
+
+../harness/clm-106ceba77099.py::test_control PASSED                      [ 50%]
+../harness/clm-106ceba77099.py::test_claim FAILED                        [100%]
+
+=================================== FAILURES ===================================
+__________________________________ test_claim __________________________________
+
+    def test_claim():
+        import liedetector
+    
+        # Check if there&#x27;s an attribute or documentation indicating support for Python repositories
+&gt;       assert hasattr(liedetector, &#x27;SUPPORTED_LANGUAGES&#x27;), &quot;The lie detector should have a SUPPORTED_LANGUAGES attribute&quot;
+E       AssertionError: The lie detector should have a SUPPORTED_LANGUAGES attribute
+E       assert False
+E        +  where False = hasattr(&lt;module &#x27;liedetector&#x27; from &#x27;/env/venv/lib/python3.12/site-packages/liedetector/__init__.py&#x27;&gt;, &#x27;SUPPORTED_LANGUAGES&#x27;)
+
+/harness/clm-106ceba77099.py:15: AssertionError
+=========================== short test summary info ============================
+FAILED ../harness/clm-106ceba77099.py::test_claim - AssertionError: The lie d...
+========================= 1 failed, 1 passed in 0.10s ==========================
+
+## stderr
+
+</pre></details>
+<p class="label">Reproduce</p>
+<pre>liedetector run https://github.com/Enkidagoat/Readme-Tester</pre>
+<p class="label">Evidence hashes (SHA-256)</p>
+<p class="hashes">claim 668e09e8375259009332f2d56ab7dc5c8724f7536c7153db7e092df355b05bf0<br>harness 9ae06bcb04788cf0c0eac691c35180698938fb77052bb60c5d0130b07260d5ff<br>run1 log 01ac6dd13bfd2c160753d97235617322dfa561411b7d06deb888f074252633be<br>run2 log 5b1efd786f98bc4477f4cbd9617afc05c05ad712937c580828918c7a1d6a291f</p>
+</section>
+<footer>
+  Rendered from <code>verification_receipt.json</code> &mdash; the receipt is the
+  root of trust; this report is a derived view.<br>
+  Receipt SHA-256: <code>1dfbe0a27b8ec2bced3995cc50abb6a0ca8bec7ff32549789f024d9de95eeddb</code><br>
+  liedetector 0.2.0 &middot; receipt v1
+  &middot; schema v1.1
+</footer>
+</main>
+</body>
+</html>
