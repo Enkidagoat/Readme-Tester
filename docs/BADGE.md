@@ -19,6 +19,9 @@ Secrets to add to the repo (Settings -> Secrets):
 - `OPENAI_API_KEY` — for OpenAI-compatible providers (optional)
 - `FEATHERLESS_API_KEY` — alternative key name supported by the CLI
 - `OPENAI_BASE_URL` — required when using Featherless or non-OpenAI hosts
+ - `OPENAI_MODEL` — optional: set to a model name your provider supports when
+   the default (`gpt-4o`) is not available (for example, `gpt-3.5-turbo` or a
+   provider-specific model name).
 
 Notes
 -----

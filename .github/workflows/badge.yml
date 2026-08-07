@@ -33,23 +33,38 @@ jobs:
       - name: Install
         run: pip install -e ".[dev]"
 
-      - name: Check for an Anthropic credential
+      - name: Check for an LLM credential (Anthropic or OpenAI-compatible)
         id: creds
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          FEATHERLESS_API_KEY: ${{ secrets.FEATHERLESS_API_KEY }}
         run: |
           if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "provider=anthropic" >> "$GITHUB_OUTPUT"
+            echo "has_key=true" >> "$GITHUB_OUTPUT"
+          elif [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${FEATHERLESS_API_KEY:-}" ]; then
+            echo "provider=openai" >> "$GITHUB_OUTPUT"
             echo "has_key=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_key=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::ANTHROPIC_API_KEY secret is not set; skipping badge self-audit."
+            echo "::warning::No LLM credential found; skipping badge self-audit."
           fi
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - name: Run liedetector against this repository
         if: steps.creds.outputs.has_key == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: liedetector run "https://github.com/${{ github.repository }}"
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          FEATHERLESS_API_KEY: ${{ secrets.FEATHERLESS_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+        run: |
+          if [ -n "${OPENAI_MODEL:-}" ]; then
+            liedetector run "https://github.com/${{ github.repository }}" --provider ${{ steps.creds.outputs.provider }} --model "$OPENAI_MODEL"
+          else
+            liedetector run "https://github.com/${{ github.repository }}" --provider ${{ steps.creds.outputs.provider }}
+          fi
 
       - name: Locate the freshest receipt
         if: steps.creds.outputs.has_key == 'true'
