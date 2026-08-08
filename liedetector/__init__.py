@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """The Lie Detector: verify factual claims in a repository's README.
 
 The package implements a deterministic pipeline:
@@ -11,6 +9,7 @@ The package implements a deterministic pipeline:
 The canonical artifact is ``verification_receipt.json``; the HTML Truth
 Report is a derived view rendered from the receipt plus stored logs.
 """
+from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
@@ -49,7 +48,11 @@ def run(*args: Any, **kwargs: Any) -> Any:
     """
     from . import cli
 
-    return cli.run(*args, **kwargs)
+    # `cli.main` is the programmatic entrypoint for the CLI. If callers
+    # pass a single list of argv values, forward it; otherwise call with
+    # no argv (which makes the CLI read from sys.argv).
+    argv = args[0] if args and isinstance(args[0], list) else None
+    return cli.main(argv)
 
 
 def verify(receipt_path: str | Path) -> Any:
