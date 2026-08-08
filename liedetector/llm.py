@@ -121,6 +121,10 @@ class OpenAIClient:
         self.model = model
         self.max_tokens = max_tokens
         self._supports_json_schema: bool | None = None  # None = not yet probed
+        # prefer deterministic sampling when provider supports it
+        self._temperature = 0
+        self._max_retries = 3
+        self._backoff_base = 0.8
 
     def complete(self, system: str, user: str, schema: dict[str, Any]) -> str:
         messages: list[dict[str, Any]] = []
@@ -132,47 +136,63 @@ class OpenAIClient:
         # Featherless, and most modern providers).  Support is only confirmed
         # when the response actually parses as JSON — some providers accept
         # the parameter, silently ignore it, and return fenced markdown.
+        # Attempt json_schema mode with simple retry/backoff for transient errors
         if self._supports_json_schema is not False:
-            try:
-                response = self._client.chat.completions.create(  # type: ignore[call-overload]
-                    model=self.model,
-                    max_tokens=self.max_tokens,
-                    messages=messages,
-                    response_format={
-                        "type": "json_schema",
-                        "json_schema": {
-                            "name": "response",
-                            "strict": True,
-                            "schema": schema,
+            attempt = 0
+            while True:
+                attempt += 1
+                try:
+                    response = self._client.chat.completions.create(  # type: ignore[call-overload]
+                        model=self.model,
+                        max_tokens=self.max_tokens,
+                        messages=messages,
+                        response_format={
+                            "type": "json_schema",
+                            "json_schema": {
+                                "name": "response",
+                                "strict": True,
+                                "schema": schema,
+                            },
                         },
-                    },
-                )
-                content = response.choices[0].message.content
-                if content is None:
-                    raise LLMError("model returned no content")
-                if self._supports_json_schema is None:
-                    # A compliant json_schema response is bare JSON.  Fenced
-                    # markdown or prose means the provider silently ignored
-                    # response_format, so the schema is not being enforced —
-                    # fall back to json_object mode with the schema in-prompt.
-                    try:
-                        json.loads(str(content))
-                    except json.JSONDecodeError as exc:
-                        raise LLMError(
-                            f"json_schema response is not bare JSON: {exc}"
-                        ) from exc
-                self._supports_json_schema = True
-                return str(content)
-            except Exception as exc:
-                if self._supports_json_schema is None:
-                    log.info(
-                        "json_schema response_format failed (%s); falling back to "
-                        "json_object mode with schema in prompt",
-                        exc,
+                        temperature=self._temperature,
                     )
-                    self._supports_json_schema = False
-                else:
-                    raise
+                    content = response.choices[0].message.content
+                    if content is None:
+                        raise LLMError("model returned no content")
+                    if self._supports_json_schema is None:
+                        try:
+                            json.loads(str(content))
+                        except json.JSONDecodeError as exc:
+                            raise LLMError(
+                                f"json_schema response is not bare JSON: {exc}"
+                            ) from exc
+                    self._supports_json_schema = True
+                    return str(content)
+                except Exception as exc:
+                    msg = str(exc).lower()
+                    transient = (
+                        "busy" in msg
+                        or "rate limit" in msg
+                        or "timeout" in msg
+                        or "temporarily" in msg
+                        or "server_error" in msg
+                    )
+                    if self._supports_json_schema is None:
+                        log.info(
+                            "json_schema response_format failed (%s); falling back to"
+                            " json_object mode with schema in prompt",
+                            exc,
+                        )
+                        self._supports_json_schema = False
+                        break
+                    if not transient or attempt >= self._max_retries:
+                        raise
+                    # transient, sleep and retry
+                    import time
+
+                    sleep_for = self._backoff_base * (2 ** (attempt - 1))
+                    log.warning("transient model error, retrying in %ss: %s", sleep_for, exc)
+                    time.sleep(sleep_for)
 
         # Fallback: json_object mode with schema embedded in the prompt.
         schema_json = json.dumps(schema)

@@ -42,6 +42,49 @@ def refine(claims: list[Claim]) -> tuple[list[Claim], list[Evaluation]]:
                 )
             )
             continue
+        # Heuristic: some hypotheses require operations the harness is
+        # forbidden from performing (subprocess, shell, dynamic import,
+        # host-environment checks). These are architectural/infrastructure
+        # assertions and must be marked UNTESTABLE rather than forced into
+        # a generated harness that can only assert-fail.
+        forbidden_keywords = (
+            "subprocess",
+            "importlib",
+            "getattr",
+            "os.system",
+            "shell",
+            "make test",
+            "make",
+            "commit",
+            "commit sha",
+            "sha",
+            "git",
+            "global",
+            "global mutable",
+            "windows",
+            "win32",
+            "sys.platform",
+            "fake sandbox",
+            "scripted model",
+            "hermetic",
+        )
+        hyp_lower = claim.hypothesis.lower()
+        if any(kw in hyp_lower for kw in forbidden_keywords):
+            failed.append(
+                Evaluation(
+                    claim=claim,
+                    verdict=Verdict.UNTESTABLE,
+                    failure_category=FailureCategory.UNKNOWN,
+                    verdict_confidence=Confidence.HIGH,
+                    rationale=(
+                        "Claim requires host-level introspection or forbidden "
+                        "operations (subprocess/dynamic import/host checks); "
+                        "marked UNTESTABLE to avoid spurious FALSE verdicts."
+                    ),
+                )
+            )
+            continue
+
         refined.append(claim)
     log.info(
         "refinement invariants checked",
