@@ -1,7 +1,7 @@
 # The Lie Detector
 
 [![CI](https://github.com/Enkidagoat/Readme-Tester/actions/workflows/ci.yml/badge.svg)](https://github.com/Enkidagoat/Readme-Tester/actions/workflows/ci.yml)
-[![truth report](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Enkidagoat/Readme-Tester/badges/badge.json)](https://github.com/Enkidagoat/Readme-Tester/blob/badges/report.html)
+[![truth report](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Enkidagoat/Readme-Tester/main/receipts/1610b492fe3f/badge.json)](https://github.com/Enkidagoat/Readme-Tester/blob/main/reports/1610b492fe3f.html)
 [![license](https://img.shields.io/github/license/Enkidagoat/Readme-Tester)](https://github.com/Enkidagoat/Readme-Tester/blob/main/LICENSE)
 
 **Turn READMEs into tests.**
