@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """The Lie Detector: verify factual claims in a repository's README.
 
 The package implements a deterministic pipeline:
@@ -9,6 +11,9 @@ The package implements a deterministic pipeline:
 The canonical artifact is ``verification_receipt.json``; the HTML Truth
 Report is a derived view rendered from the receipt plus stored logs.
 """
+
+from pathlib import Path
+from typing import Any
 
 TOOL_VERSION = "0.2.0"
 SCHEMA_VERSION = "1.1"
@@ -34,3 +39,28 @@ DOCKER_IMAGE_NODE = (
 
 #: Default model for the OpenAI-compatible provider (used with --provider openai).
 DEFAULT_OPENAI_MODEL = "gpt-4o"
+
+
+def run(*args: Any, **kwargs: Any) -> Any:
+    """Package-level API entry point for `liedetector.run`.
+
+    The generated harnesses check for this symbol because the core claim
+    talks about a programmatic package API for the run command.
+    """
+    from . import cli
+
+    return cli.run(*args, **kwargs)
+
+
+def verify(receipt_path: str | Path) -> Any:
+    """Package-level API entry point for `liedetector.verify`."""
+    from . import receipt
+
+    return receipt.verify_receipt(Path(receipt_path))
+
+
+def generate_receipt(*args: Any, **kwargs: Any) -> Any:
+    """Package-level API entry point for `liedetector.generate_receipt`."""
+    from . import receipt
+
+    return receipt.build_receipt(*args, **kwargs)
