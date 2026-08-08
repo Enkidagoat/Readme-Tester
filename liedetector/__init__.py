@@ -12,17 +12,18 @@ Report is a derived view rendered from the receipt plus stored logs.
 from __future__ import annotations
 
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 TOOL_VERSION = "0.2.0"
 SCHEMA_VERSION = "1.1"
 RECEIPT_VERSION = "1"
 
-PROMPT_VERSIONS = {
+PROMPT_VERSIONS = MappingProxyType({
     "extraction": "extract-v1",
     "harness": "harness-v2",
     "harness_js": "harness-js-v2",
-}
+})
 
 #: Execution sandbox image for Python repositories, pinned by digest (never by tag).
 DOCKER_IMAGE = (

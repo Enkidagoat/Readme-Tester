@@ -22,8 +22,8 @@ canonical `verification_receipt.json` whose SHA-256 is printed to the console.
 
 Every factual claim in a README ("`add(2, 3)` returns `5`", "handles Unicode",
 "installs with pip") is extracted, classified, refined into a precise testable
-hypothesis, turned into exactly one sandboxed pytest harness, executed **twice**
-in a locked-down container, and adjudicated to one of four verdicts:
+hypothesis, turned into exactly one sandboxed pytest harness, executed in a
+locked-down container for adjudication, and adjudicated to one of four verdicts:
 
 | Verdict | Meaning |
 | --- | --- |
@@ -198,9 +198,10 @@ make test         # hermetic unit/integration tests (no Docker, no API)
 make test-docker  # opt-in real-sandbox end-to-end test (requires Docker)
 ```
 
-The hermetic suite and `test-docker` both pass on Windows. Two host-filesystem
-quirks are worked around internally and are worth knowing about if you're
-modifying `cli.py`, `utils.py`, or `executor.py`:
+The hermetic suite is designed to work on Windows; `test-docker` is an
+opt-in Docker end-to-end path exercised in Linux-based environments. Two
+host-filesystem quirks are worked around internally and are worth knowing
+about if you're modifying `cli.py`, `utils.py`, or `executor.py`:
 
 - Hashed artifacts (`README.md`, harnesses, logs) are written as raw UTF-8
   bytes, not via text-mode `write_text`, so Windows' newline translation
