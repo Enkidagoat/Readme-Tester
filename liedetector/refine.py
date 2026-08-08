@@ -93,7 +93,12 @@ def refine(claims: list[Claim]) -> tuple[list[Claim], list[Evaluation]]:
         # package internals, so mark these UNTESTABLE to avoid false
         # negatives when the model guesses internal names.
         if (
-            ("hasattr(" in hyp_lower or "has attribute" in hyp_lower or "expose" in hyp_lower or "exposes" in hyp_lower)
+            (
+                "hasattr(" in hyp_lower
+                or "has attribute" in hyp_lower
+                or "expose" in hyp_lower
+                or "exposes" in hyp_lower
+            )
             and "liedetector" in hyp_lower
         ):
             failed.append(
@@ -113,7 +118,10 @@ def refine(claims: list[Claim]) -> tuple[list[Claim], list[Evaluation]]:
 
         # Also detect quoted or bare symbol names that look like private
         # identifiers (leading underscore or dunder) and mark them UNTESTABLE.
-        if re.search(r"hasattr\([^,]+,\s*['\"](_[^'\"]+)['\"]\)", claim.hypothesis) or re.search(r"\b_[A-Za-z0-9_]+\b", claim.hypothesis):
+        if (
+            re.search(r"hasattr\([^,]+,\s*['\"](_[^'\"]+)['\"]\)", claim.hypothesis)
+            or re.search(r"\b_[A-Za-z0-9_]+\b", claim.hypothesis)
+        ):
             failed.append(
                 Evaluation(
                     claim=claim,
@@ -122,7 +130,8 @@ def refine(claims: list[Claim]) -> tuple[list[Claim], list[Evaluation]]:
                     verdict_confidence=Confidence.HIGH,
                     rationale=(
                         "Claim references a private or internal symbol (leading underscore); "
-                        "marked UNTESTABLE since private implementation details are not part of the public API."
+                        "marked UNTESTABLE since private implementation details are not "
+                        "part of the public API."
                     ),
                 )
             )
