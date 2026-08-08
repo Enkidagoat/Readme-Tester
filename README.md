@@ -198,9 +198,9 @@ make test         # hermetic unit/integration tests (no Docker, no API)
 make test-docker  # opt-in real-sandbox end-to-end test (requires Docker)
 ```
 
-The hermetic suite is designed to work on Windows; `test-docker` is an
-opt-in Docker end-to-end path exercised in Linux-based environments. Two
-host-filesystem quirks are worked around internally and are worth knowing
+The hermetic suite is designed for cross-platform compatibility; `test-docker`
+is an opt-in Docker end-to-end path exercised in Linux-based environments.
+Two host-filesystem quirks are worked around internally and are worth knowing
 about if you're modifying `cli.py`, `utils.py`, or `executor.py`:
 
 - Hashed artifacts (`README.md`, harnesses, logs) are written as raw UTF-8

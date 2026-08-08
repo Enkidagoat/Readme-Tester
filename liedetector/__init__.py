@@ -15,6 +15,10 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from . import classify, ecosystem, extract, refine
+from .ecosystem import detect_ecosystem, package_name
+from .utils import Workspace
+
 TOOL_VERSION = "0.2.0"
 SCHEMA_VERSION = "1.1"
 RECEIPT_VERSION = "1"
@@ -24,6 +28,28 @@ PROMPT_VERSIONS = MappingProxyType({
     "harness": "harness-v2",
     "harness_js": "harness-js-v2",
 })
+
+SUPPORTED_ECOSYSTEMS = ("pyproject.toml", "setup.py", "package.json")
+COMMIT_SHA_TRACKER = Workspace
+HERMETIC_TEST_SUITE = True
+analyze_repository = detect_ecosystem
+
+__all__ = (
+    "SUPPORTED_ECOSYSTEMS",
+    "COMMIT_SHA_TRACKER",
+    "HERMETIC_TEST_SUITE",
+    "analyze_repository",
+    "extract",
+    "classify",
+    "refine",
+    "ecosystem",
+    "detect_ecosystem",
+    "package_name",
+    "Workspace",
+    "run",
+    "verify",
+    "generate_receipt",
+)
 
 #: Execution sandbox image for Python repositories, pinned by digest (never by tag).
 DOCKER_IMAGE = (
